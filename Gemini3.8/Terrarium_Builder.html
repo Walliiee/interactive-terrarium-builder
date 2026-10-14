@@ -1,0 +1,670 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Terrarium Builder</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <!-- html2canvas for download feature -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;800&display=swap');
+
+        body {
+            font-family: 'Nunito', sans-serif;
+            background-color: #f0f4f0;
+            overflow: hidden; 
+            touch-action: none; /* Prevent scroll on touch devices during drag */
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+        .palette-item {
+            cursor: grab;
+            transition: transform 0.2s, background-color 0.2s;
+            user-select: none;
+            touch-action: none;
+        }
+        
+        .palette-item:hover { transform: scale(1.15); }
+        .palette-item:active { cursor: grabbing; }
+
+        /* The item currently being dragged (clone or active item) */
+        .dragging {
+            position: fixed !important;
+            pointer-events: none; /* Let events pass through to drop zone */
+            z-index: 1000 !important;
+            cursor: grabbing !important;
+            filter: drop-shadow(0 10px 15px rgba(0,0,0,0.2));
+        }
+
+        /* Items placed in the terrarium workspace */
+        .workspace-item {
+            position: absolute;
+            cursor: grab;
+            user-select: none;
+            touch-action: none;
+            transform-origin: center center;
+        }
+
+        .workspace-item:active { cursor: grabbing; }
+
+        /* Visual selection cue */
+        .workspace-item.selected::after {
+            content: '';
+            position: absolute;
+            top: -12px; left: -12px; right: -12px; bottom: -12px;
+            border: 2px dashed #4ade80;
+            border-radius: 50%;
+            pointer-events: none;
+            animation: pulse-border 1.5s infinite;
+        }
+
+        @keyframes pulse-border {
+            0% { opacity: 0.4; transform: scale(0.95); }
+            50% { opacity: 1; transform: scale(1.05); }
+            100% { opacity: 0.4; transform: scale(0.95); }
+        }
+
+        /* Jar Layers Effects */
+        .glass-back {
+            fill: rgba(255, 255, 255, 0.5);
+            stroke: rgba(255, 255, 255, 0.7);
+            stroke-width: 4;
+        }
+        
+        .glass-front {
+            fill: url(#glass-gradient);
+            pointer-events: none; /* Let clicks pass to items behind the reflection */
+        }
+
+        .cork {
+            fill: #cfa068;
+            stroke: #a67c52;
+            stroke-width: 2;
+        }
+
+        /* Range Slider Styling */
+        input[type=range] {
+            -webkit-appearance: none;
+            width: 100%;
+            background: transparent;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 16px; width: 16px;
+            border-radius: 50%;
+            background: #16a34a;
+            cursor: pointer;
+            margin-top: -6px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%; height: 4px;
+            cursor: pointer;
+            background: #d1d5db;
+            border-radius: 2px;
+        }
+        
+        #loading-overlay { display: none; }
+        #loading-overlay.active { display: flex; }
+
+        /* Toast Animations */
+        .toast-enter { animation: slideIn 0.3s ease-out forwards; }
+        .toast-exit { animation: fadeOut 0.3s ease-in forwards; }
+        
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+        @keyframes fadeOut {
+            from { opacity: 1; }
+            to { opacity: 0; }
+        }
+    </style>
+</head>
+<body class="text-gray-800 h-screen w-screen flex flex-col md:flex-row">
+
+    <!-- Toast Notifications Container -->
+    <div id="toast-container" class="fixed top-4 right-4 z-[3000] flex flex-col gap-2 pointer-events-none"></div>
+
+    <!-- Loading Overlay for Screenshotting -->
+    <div id="loading-overlay" class="fixed inset-0 bg-white/80 z-[2000] items-center justify-center flex-col backdrop-blur-sm transition-opacity">
+        <i class="fas fa-camera-retro text-4xl text-green-600 mb-4 animate-bounce"></i>
+        <p class="text-lg font-bold text-green-800 tracking-wide">Capturing your ecosystem...</p>
+    </div>
+
+    <!-- Left Sidebar: Palette & Tools -->
+    <aside class="w-full md:w-80 h-2/5 md:h-full bg-white shadow-2xl flex flex-col z-20 border-r border-green-100 shrink-0 relative">
+        <div class="p-5 bg-gradient-to-br from-green-700 to-green-900 text-white shadow-md">
+            <h1 class="text-2xl font-extrabold flex items-center gap-2 tracking-wide">
+                <i class="fas fa-leaf text-green-300"></i> Terrarium Builder
+            </h1>
+            <p class="text-green-200 text-sm mt-1 opacity-90">Drag elements to create your tiny world.</p>
+        </div>
+
+        <div class="flex-1 overflow-y-auto p-4 space-y-6 bg-gray-50/50" id="palette-container">
+            <!-- Dynamically populated via JS -->
+        </div>
+
+        <!-- Selected Item Properties Editor (Hidden by default) -->
+        <div id="properties-panel" class="absolute bottom-0 left-0 w-full p-4 bg-white border-t-2 border-green-500 shadow-[0_-10px_20px_rgba(0,0,0,0.05)] transform translate-y-full transition-transform duration-300 z-30 flex flex-col gap-3">
+            <div class="flex justify-between items-center border-b border-gray-100 pb-2">
+                <h3 class="font-bold text-green-800 text-sm flex items-center gap-2">
+                    <i class="fas fa-sliders-h text-green-500"></i> Adjust Item
+                </h3>
+                <div class="flex gap-2">
+                    <button id="btn-deselect" class="text-gray-400 hover:text-gray-600 p-1 rounded transition" title="Done">
+                        <i class="fas fa-check"></i>
+                    </button>
+                    <button id="btn-delete" class="text-red-400 hover:text-red-600 p-1 rounded transition" title="Remove Item">
+                        <i class="fas fa-trash-alt"></i>
+                    </button>
+                </div>
+            </div>
+            
+            <div class="space-y-3">
+                <div>
+                    <div class="flex justify-between text-xs text-gray-500 font-semibold mb-1">
+                        <span>Size</span>
+                        <span id="scale-val">100%</span>
+                    </div>
+                    <input type="range" id="item-scale" min="0.3" max="4" step="0.1" value="1">
+                </div>
+                <div>
+                    <div class="flex justify-between text-xs text-gray-500 font-semibold mb-1">
+                        <span>Rotation</span>
+                        <span id="rotate-val">0°</span>
+                    </div>
+                    <input type="range" id="item-rotate" min="-180" max="180" step="5" value="0">
+                </div>
+                <div class="flex gap-2 pt-1">
+                    <button id="btn-layer-up" class="flex-1 bg-gray-50 border border-gray-200 text-gray-700 py-1.5 rounded text-xs font-semibold hover:bg-green-50 hover:text-green-700 hover:border-green-300 transition shadow-sm">
+                        <i class="fas fa-layer-group mr-1"></i> Bring Forward
+                    </button>
+                    <button id="btn-layer-down" class="flex-1 bg-gray-50 border border-gray-200 text-gray-700 py-1.5 rounded text-xs font-semibold hover:bg-green-50 hover:text-green-700 hover:border-green-300 transition shadow-sm">
+                        <i class="fas fa-layer-group mr-1 opacity-50"></i> Send Back
+                    </button>
+                </div>
+            </div>
+        </div>
+    </aside>
+
+    <!-- Main Workspace Area -->
+    <main class="flex-1 relative flex flex-col h-3/5 md:h-full bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-green-50 via-gray-100 to-gray-200">
+        
+        <!-- Global Toolbar -->
+        <div class="absolute top-4 right-4 z-40 flex gap-2">
+            <button id="btn-clear" class="bg-white/80 backdrop-blur text-gray-700 hover:text-red-600 hover:bg-red-50 px-4 py-2 rounded-full shadow-sm font-bold text-sm transition flex items-center gap-2 border border-gray-200">
+                <i class="fas fa-eraser"></i> Clear
+            </button>
+            <button id="btn-download" class="bg-green-600 hover:bg-green-700 text-white px-5 py-2 rounded-full shadow-lg font-bold text-sm transition-all flex items-center gap-2 hover:scale-105 active:scale-95">
+                <i class="fas fa-download"></i> Save Image
+            </button>
+        </div>
+
+        <!-- Canvas Container -->
+        <div id="canvas-area" class="flex-1 flex items-center justify-center relative w-full h-full p-4 overflow-hidden">
+            
+            <!-- Wrapper used for html2canvas targeting -->
+            <div id="terrarium-export-wrapper" class="relative flex items-center justify-center w-full max-w-[550px] aspect-[4/5] mx-auto pointer-events-none drop-shadow-2xl">
+                
+                <!-- SVG Background & Base Geometry -->
+                <svg viewBox="0 0 400 500" class="absolute w-full h-full z-0 pointer-events-none" preserveAspectRatio="xMidYMid meet">
+                    <defs>
+                        <!-- Glass Gradient -->
+                        <linearGradient id="glass-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" stop-color="rgba(255,255,255,0.7)" />
+                            <stop offset="20%" stop-color="rgba(255,255,255,0.15)" />
+                            <stop offset="70%" stop-color="rgba(255,255,255,0.0)" />
+                            <stop offset="100%" stop-color="rgba(255,255,255,0.4)" />
+                        </linearGradient>
+                        
+                        <!-- Main Jar Silhouette Path -->
+                        <path id="jar-shape" d="M 110 80 
+                                 C 110 50, 290 50, 290 80 
+                                 C 290 120, 360 180, 370 300 
+                                 C 380 460, 320 490, 200 490 
+                                 C 80 490, 20 460, 30 300 
+                                 C 40 180, 110 120, 110 80 Z" />
+                    </defs>
+
+                    <!-- Cork Stopper -->
+                    <path class="cork" d="M 130 35 L 270 35 C 280 35, 285 60, 285 75 L 115 75 C 115 60, 120 35, 130 35 Z" />
+                    
+                    <!-- Back Glass panel -->
+                    <use href="#jar-shape" class="glass-back" />
+                    
+                    <!-- Base soil curve decoration behind items -->
+                    <path d="M 30 300 C 50 420, 80 490, 200 490 C 320 490, 350 420, 370 300 C 250 360, 150 360, 30 300 Z" fill="#5c4033" opacity="0.25" />
+                </svg>
+
+                <!-- Interactive Item Area -->
+                <!-- Clip path closely matches the jar interior so items don't bleed out of bounds -->
+                <div id="drop-zone" class="absolute w-full h-full z-10 pointer-events-auto" style="clip-path: polygon(30% 16%, 70% 16%, 86% 35%, 92% 80%, 75% 97%, 25% 97%, 8% 80%, 14% 35%);">
+                    <!-- Dropped workspace-items appear here -->
+                </div>
+
+                <!-- SVG Front Glass (Reflections and Highlights) OVER items -->
+                <svg viewBox="0 0 400 500" class="absolute w-full h-full z-20 pointer-events-none" preserveAspectRatio="xMidYMid meet">
+                    <!-- Main glass fill -->
+                    <use href="#jar-shape" class="glass-front" />
+                    <!-- Left rim highlight -->
+                    <path d="M 50 250 C 45 180, 100 120, 120 90" fill="none" stroke="rgba(255,255,255,0.8)" stroke-width="6" stroke-linecap="round" filter="blur(1px)"/>
+                    <!-- Bottom glare -->
+                    <path d="M 70 380 C 50 320, 60 280, 60 280" fill="none" stroke="rgba(255,255,255,0.4)" stroke-width="4" stroke-linecap="round" filter="blur(0.5px)"/>
+                    <!-- Subtle top right reflection -->
+                    <path d="M 270 90 C 300 120, 330 160, 340 210" fill="none" stroke="rgba(255,255,255,0.5)" stroke-width="4" stroke-linecap="round" filter="blur(1px)"/>
+                </svg>
+            </div>
+            
+            <!-- Floating Instructions (Hides when items are present) -->
+            <div id="instructions" class="absolute pointer-events-none z-30 text-center opacity-80 flex flex-col items-center">
+                <div class="bg-white/90 px-6 py-3 rounded-2xl shadow-lg backdrop-blur-md border border-green-100 flex flex-col items-center animate-bounce">
+                    <i class="fas fa-hand-holding-seedling text-3xl text-green-600 mb-2"></i>
+                    <p class="text-green-900 font-extrabold text-sm tracking-wide">Drag items into the jar</p>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // --- Custom Toast Notification System ---
+        function showToast(message, type = 'success') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            
+            // Base styles and animation class
+            toast.className = `toast-enter px-5 py-3 rounded-lg shadow-xl text-white text-sm font-bold flex items-center gap-2 pointer-events-auto max-w-xs`;
+            
+            // Color based on type
+            if (type === 'error') {
+                toast.classList.add('bg-red-500');
+                toast.innerHTML = `<i class="fas fa-exclamation-circle"></i> ${message}`;
+            } else if (type === 'info') {
+                toast.classList.add('bg-blue-500');
+                toast.innerHTML = `<i class="fas fa-info-circle"></i> ${message}`;
+            } else {
+                toast.classList.add('bg-green-600');
+                toast.innerHTML = `<i class="fas fa-check-circle"></i> ${message}`;
+            }
+            
+            container.appendChild(toast);
+            
+            // Remove after 3 seconds
+            setTimeout(() => {
+                toast.classList.replace('toast-enter', 'toast-exit');
+                toast.addEventListener('animationend', () => toast.remove());
+            }, 3000);
+        }
+
+        // --- Application Data ---
+        const itemCategories = [
+            {
+                name: 'Flora & Fungi',
+                icon: 'fa-seedling',
+                items: ['🌿', '🪴', '🌱', '🌴', '🌵', '🍀', '🌸', '🌼', '🌻', '🌾', '🍁', '🍃', '🍄', '🌷', '🥀', '🌲']
+            },
+            {
+                name: 'Earth & Base',
+                icon: 'fa-mountain',
+                items: ['🪨', '🪵', '🟫', '🟩', '🏔️', '🧱', '💧', '🦴', '🐚']
+            },
+            {
+                name: 'Fauna & Magic',
+                icon: 'fa-bug',
+                items: ['🐌', '🐞', '🦋', '🐸', '🧚', '🐛', '🐜', '🐝', '🦎', '🐢', '✨', '💎', '🕷️', '🦗', '🐈', '🐁']
+            }
+        ];
+
+        // --- Application State ---
+        let currentId = 0; 
+        let draggedElement = null; 
+        let isDraggingFromPalette = false; 
+        let dragOffset = { x: 0, y: 0 }; 
+        let selectedItem = null; 
+        let baseZIndex = 10; 
+
+        // --- DOM References ---
+        const paletteContainer = document.getElementById('palette-container');
+        const dropZone = document.getElementById('drop-zone');
+        const propertiesPanel = document.getElementById('properties-panel');
+        const instructions = document.getElementById('instructions');
+        
+        // Form controls
+        const scaleInput = document.getElementById('item-scale');
+        const rotateInput = document.getElementById('item-rotate');
+        const scaleValDisplay = document.getElementById('scale-val');
+        const rotateValDisplay = document.getElementById('rotate-val');
+        
+        // Buttons
+        const btnDelete = document.getElementById('btn-delete');
+        const btnDeselect = document.getElementById('btn-deselect');
+        const btnLayerUp = document.getElementById('btn-layer-up');
+        const btnLayerDown = document.getElementById('btn-layer-down');
+        const btnClear = document.getElementById('btn-clear');
+        const btnDownload = document.getElementById('btn-download');
+
+        // --- Initialization ---
+        function init() {
+            renderPalette();
+            setupEventListeners();
+        }
+
+        function renderPalette() {
+            itemCategories.forEach(category => {
+                const section = document.createElement('div');
+                section.className = 'mb-2';
+                
+                const header = document.createElement('h2');
+                header.className = 'text-xs font-bold text-gray-500 mb-3 uppercase tracking-wider flex items-center gap-2';
+                header.innerHTML = `<i class="fas ${category.icon} text-gray-400"></i> ${category.name}`;
+                section.appendChild(header);
+
+                const grid = document.createElement('div');
+                grid.className = 'grid grid-cols-4 gap-2 bg-white p-3 rounded-xl shadow-sm border border-gray-100';
+                
+                category.items.forEach(emoji => {
+                    const item = document.createElement('div');
+                    item.className = 'palette-item text-3xl flex items-center justify-center bg-gray-50 rounded-lg aspect-square hover:bg-green-100 border border-transparent hover:border-green-300';
+                    item.textContent = emoji;
+                    item.dataset.emoji = emoji;
+                    
+                    // Attach pointer events for mobile-friendly dragging
+                    item.addEventListener('pointerdown', handlePalettePointerDown);
+                    
+                    grid.appendChild(item);
+                });
+
+                section.appendChild(grid);
+                paletteContainer.appendChild(section);
+            });
+        }
+
+        // --- Pointer Event Handlers (Drag & Drop) ---
+
+        function handlePalettePointerDown(e) {
+            e.preventDefault(); 
+            if (e.button !== 0 && e.type.includes('mouse')) return;
+
+            isDraggingFromPalette = true;
+            deselectAll();
+
+            // Create a temporary clone for dragging
+            const sourceEmoji = e.target.closest('.palette-item').textContent;
+            draggedElement = createWorkspaceItem(sourceEmoji);
+            
+            draggedElement.classList.add('dragging');
+            document.body.appendChild(draggedElement);
+
+            // Center clone on pointer
+            const rect = draggedElement.getBoundingClientRect();
+            dragOffset.x = rect.width / 2;
+            dragOffset.y = rect.height / 2;
+
+            moveDraggedElement(e.clientX, e.clientY);
+        }
+
+        function handleWorkspacePointerDown(e) {
+            const item = e.target.closest('.workspace-item');
+            if (!item) {
+                deselectAll();
+                return;
+            }
+
+            e.preventDefault();
+            if (e.button !== 0 && e.type.includes('mouse')) return;
+
+            isDraggingFromPalette = false;
+            draggedElement = item;
+            selectItem(item);
+
+            // Temporarily lift item while dragging
+            draggedElement.style.zIndex = baseZIndex + 100;
+
+            const rect = draggedElement.getBoundingClientRect();
+            const centerX = rect.left + rect.width / 2;
+            const centerY = rect.top + rect.height / 2;
+            
+            dragOffset.x = e.clientX - centerX;
+            dragOffset.y = e.clientY - centerY;
+        }
+
+        function onPointerMove(e) {
+            if (!draggedElement) return;
+            e.preventDefault(); // Prevent scroll while active drag
+            moveDraggedElement(e.clientX, e.clientY);
+        }
+
+        function moveDraggedElement(clientX, clientY) {
+            if (isDraggingFromPalette) {
+                // Absolute positioning relative to viewport
+                draggedElement.style.left = `${clientX}px`;
+                draggedElement.style.top = `${clientY}px`;
+                draggedElement.style.transform = `translate(-50%, -50%) scale(1.5)`; 
+            } else {
+                // Relative positioning inside the drop zone
+                const dzRect = dropZone.getBoundingClientRect();
+                let newLeft = clientX - dzRect.left - dragOffset.x;
+                let newTop = clientY - dzRect.top - dragOffset.y;
+
+                draggedElement.style.left = `${newLeft}px`;
+                draggedElement.style.top = `${newTop}px`;
+                applyTransform(draggedElement); // maintain rotation/scale
+            }
+        }
+
+        function onPointerUp(e) {
+            if (!draggedElement) return;
+
+            if (isDraggingFromPalette) {
+                const dzRect = dropZone.getBoundingClientRect();
+                const isOverDropZone = (
+                    e.clientX >= dzRect.left &&
+                    e.clientX <= dzRect.right &&
+                    e.clientY >= dzRect.top &&
+                    e.clientY <= dzRect.bottom
+                );
+
+                if (isOverDropZone) {
+                    // Place the item in the jar
+                    draggedElement.classList.remove('dragging');
+                    dropZone.appendChild(draggedElement);
+                    
+                    const newLeft = e.clientX - dzRect.left;
+                    const newTop = e.clientY - dzRect.top;
+                    
+                    draggedElement.style.left = `${newLeft}px`;
+                    draggedElement.style.top = `${newTop}px`;
+                    
+                    applyTransform(draggedElement);
+                    selectItem(draggedElement);
+                    checkEmpty();
+                } else {
+                    // Discard if dropped outside
+                    draggedElement.remove();
+                }
+            } else {
+                // Finished moving existing item, restore correct depth
+                draggedElement.style.zIndex = draggedElement.dataset.z;
+            }
+
+            draggedElement = null;
+            isDraggingFromPalette = false;
+        }
+
+        // --- Item Operations ---
+
+        function createWorkspaceItem(emoji) {
+            const el = document.createElement('div');
+            el.className = 'workspace-item text-6xl drop-shadow-md'; 
+            el.textContent = emoji;
+            el.id = `item-${currentId++}`;
+            
+            el.dataset.scale = '1';
+            el.dataset.rotate = '0';
+            el.dataset.z = baseZIndex++;
+            el.style.zIndex = el.dataset.z;
+            
+            el.addEventListener('pointerdown', handleWorkspacePointerDown);
+            return el;
+        }
+
+        function applyTransform(element) {
+            const scale = element.dataset.scale || 1;
+            const rotate = element.dataset.rotate || 0;
+            // Center origin and apply transformations
+            element.style.transform = `translate(-50%, -50%) scale(${scale}) rotate(${rotate}deg)`;
+        }
+
+        function checkEmpty() {
+            if (dropZone.children.length === 0) {
+                instructions.style.display = 'flex';
+            } else {
+                instructions.style.display = 'none';
+            }
+        }
+
+        // --- Selection & Properties UI ---
+
+        function selectItem(item) {
+            deselectAll();
+            selectedItem = item;
+            selectedItem.classList.add('selected');
+            selectedItem.style.zIndex = baseZIndex + 50; // Pop out to edit
+
+            // Sync controls
+            scaleInput.value = item.dataset.scale;
+            rotateInput.value = item.dataset.rotate;
+            scaleValDisplay.textContent = `${Math.round(item.dataset.scale * 100)}%`;
+            rotateValDisplay.textContent = `${item.dataset.rotate}°`;
+            
+            // Slide panel up
+            propertiesPanel.classList.remove('translate-y-full');
+        }
+
+        function deselectAll() {
+            if (selectedItem) {
+                selectedItem.classList.remove('selected');
+                selectedItem.style.zIndex = selectedItem.dataset.z; // Return to layer
+                selectedItem = null;
+            }
+            // Slide panel down
+            propertiesPanel.classList.add('translate-y-full');
+        }
+
+        // --- Event Listeners Binding ---
+
+        function setupEventListeners() {
+            // Document bounds
+            document.addEventListener('pointermove', onPointerMove, { passive: false });
+            document.addEventListener('pointerup', onPointerUp);
+            document.addEventListener('pointercancel', onPointerUp);
+
+            // Deselection by clicking background
+            document.getElementById('canvas-area').addEventListener('pointerdown', (e) => {
+                if (e.target.id === 'canvas-area' || e.target.id === 'drop-zone' || e.target.id === 'terrarium-export-wrapper') {
+                    deselectAll();
+                }
+            });
+            btnDeselect.addEventListener('click', deselectAll);
+
+            // Item Adjustments
+            scaleInput.addEventListener('input', (e) => {
+                if (!selectedItem) return;
+                selectedItem.dataset.scale = e.target.value;
+                scaleValDisplay.textContent = `${Math.round(e.target.value * 100)}%`;
+                applyTransform(selectedItem);
+            });
+
+            rotateInput.addEventListener('input', (e) => {
+                if (!selectedItem) return;
+                selectedItem.dataset.rotate = e.target.value;
+                rotateValDisplay.textContent = `${e.target.value}°`;
+                applyTransform(selectedItem);
+            });
+
+            btnDelete.addEventListener('click', () => {
+                if (!selectedItem) return;
+                selectedItem.remove();
+                deselectAll();
+                checkEmpty();
+                showToast("Item removed", "info");
+            });
+
+            btnLayerUp.addEventListener('click', () => {
+                if (!selectedItem) return;
+                let z = parseInt(selectedItem.dataset.z) + 1;
+                selectedItem.dataset.z = z;
+                baseZIndex = Math.max(baseZIndex, z + 1);
+            });
+
+            btnLayerDown.addEventListener('click', () => {
+                if (!selectedItem) return;
+                let z = parseInt(selectedItem.dataset.z);
+                if (z > 1) {
+                    selectedItem.dataset.z = z - 1;
+                }
+            });
+
+            // Global Actions
+            btnClear.addEventListener('click', () => {
+                dropZone.innerHTML = '';
+                deselectAll();
+                checkEmpty();
+                baseZIndex = 10;
+                showToast("Terrarium cleared", "info");
+            });
+
+            btnDownload.addEventListener('click', handleDownload);
+        }
+
+        // --- Export Canvas to PNG ---
+        async function handleDownload() {
+            if (dropZone.children.length === 0) {
+                showToast("Your terrarium is empty! Add some items first.", "error");
+                return;
+            }
+
+            deselectAll(); // Clean UI states
+            
+            const wrapper = document.getElementById('terrarium-export-wrapper');
+            const overlay = document.getElementById('loading-overlay');
+            
+            try {
+                overlay.classList.add('active');
+                
+                // Allow UI to repaint
+                await new Promise(r => setTimeout(r, 150));
+
+                const canvas = await html2canvas(wrapper, {
+                    backgroundColor: null, 
+                    scale: 3, // High-res export
+                    logging: false,
+                    useCORS: true 
+                });
+
+                const link = document.createElement('a');
+                link.download = `my-terrarium-${Date.now()}.png`;
+                link.href = canvas.toDataURL('image/png');
+                link.click();
+                
+                showToast("Terrarium saved successfully!");
+            } catch (error) {
+                console.error("Screenshot error:", error);
+                showToast("Failed to save image. Please try again.", "error");
+            } finally {
+                overlay.classList.remove('active');
+            }
+        }
+
+        window.onload = init;
+
+    </script>
+</body>
+</html>
