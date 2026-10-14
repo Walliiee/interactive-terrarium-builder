@@ -1,0 +1,1346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Terrarium Studio 3D</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Three.js + OrbitControls -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <!-- Tone.js for Zen Audio -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+    <!-- Font Awesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,600;1,400&display=swap" rel="stylesheet">
+
+    <style>
+        * {
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        body {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #0c0f0e;
+            color: #f1f5f9;
+        }
+        .serif-font {
+            font-family: 'Playfair Display', serif;
+        }
+        .glass-panel {
+            background: rgba(18, 24, 21, 0.72);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.6);
+        }
+        .glass-button {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .glass-button:hover {
+            background: rgba(255, 255, 255, 0.12);
+            border-color: rgba(52, 211, 153, 0.4);
+            transform: translateY(-1px);
+        }
+        .glass-button.active {
+            background: rgba(16, 185, 129, 0.2);
+            border-color: #10b981;
+            color: #34d399;
+            box-shadow: 0 0 15px rgba(16, 185, 129, 0.25);
+        }
+        /* Custom scrollbar */
+        ::-webkit-scrollbar {
+            height: 6px;
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(0, 0, 0, 0.1);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: 9999px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(52, 211, 153, 0.4);
+        }
+        /* Canvas container */
+        #viewport-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            touch-action: none;
+        }
+        /* Pulse spray button */
+        @keyframes water-pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.08); filter: drop-shadow(0 0 10px #38bdf8); }
+        }
+        .animate-pulse-subtle {
+            animation: water-pulse 2s infinite ease-in-out;
+        }
+    </style>
+</head>
+<body class="relative w-screen h-screen">
+
+    <!-- 3D Viewport Canvas -->
+    <div id="viewport-container"></div>
+
+    <!-- Top Navigation Header -->
+    <header class="absolute top-4 left-4 right-4 z-30 flex flex-wrap items-center justify-between gap-3 pointer-events-none">
+        <!-- Logo & Studio Info -->
+        <div class="glass-panel rounded-2xl px-5 py-3 pointer-events-auto flex items-center gap-3">
+            <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-400 flex items-center justify-center text-white shadow-lg shadow-emerald-950/40">
+                <i class="fa-solid fa-leaf text-base"></i>
+            </div>
+            <div>
+                <h1 class="serif-font font-semibold text-lg text-emerald-100 tracking-wide flex items-center gap-2">
+                    Terrarium Studio <span class="text-xs uppercase font-sans tracking-widest px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-semibold border border-emerald-500/30">3D</span>
+                </h1>
+                <p class="text-xs text-stone-400">Drag to orbit, scroll to zoom & inspect</p>
+            </div>
+        </div>
+
+        <!-- Vessel & Atmosphere Controls -->
+        <div class="glass-panel rounded-2xl px-3 py-2 flex items-center gap-1.5 pointer-events-auto shadow-xl">
+            <!-- Vessel Types -->
+            <div class="flex items-center gap-1 pr-2 border-r border-white/10">
+                <button id="btn-vessel-cloche" class="glass-button active px-3 py-1.5 rounded-xl text-xs font-medium flex items-center gap-1.5" title="Victorian Bell Cloche">
+                    <i class="fa-solid fa-wine-glass"></i> <span class="hidden sm:inline">Cloche</span>
+                </button>
+                <button id="btn-vessel-geo" class="glass-button px-3 py-1.5 rounded-xl text-xs font-medium flex items-center gap-1.5" title="Geometric Wardian Case">
+                    <i class="fa-solid fa-cube"></i> <span class="hidden sm:inline">Geometric</span>
+                </button>
+                <button id="btn-vessel-flask" class="glass-button px-3 py-1.5 rounded-xl text-xs font-medium flex items-center gap-1.5" title="Apothecary Flask">
+                    <i class="fa-solid fa-flask"></i> <span class="hidden sm:inline">Flask</span>
+                </button>
+            </div>
+
+            <!-- Lighting Moods -->
+            <div class="flex items-center gap-1 px-1">
+                <button id="btn-mood-noon" class="glass-button active w-8 h-8 rounded-xl text-amber-300 flex items-center justify-center text-xs" title="Greenhouse Daylight">
+                    <i class="fa-solid fa-sun"></i>
+                </button>
+                <button id="btn-mood-sunset" class="glass-button w-8 h-8 rounded-xl text-orange-400 flex items-center justify-center text-xs" title="Golden Hour Sunset">
+                    <i class="fa-solid fa-cloud-sun"></i>
+                </button>
+                <button id="btn-mood-night" class="glass-button w-8 h-8 rounded-xl text-indigo-400 flex items-center justify-center text-xs" title="Bioluminescent Night">
+                    <i class="fa-solid fa-moon"></i>
+                </button>
+            </div>
+
+            <!-- Utilities -->
+            <div class="flex items-center gap-1 pl-2 border-l border-white/10">
+                <button id="btn-sound" class="glass-button w-8 h-8 rounded-xl text-stone-300 flex items-center justify-center text-xs" title="Toggle Zen Chimes">
+                    <i class="fa-solid fa-volume-high"></i>
+                </button>
+                <button id="btn-camera-reset" class="glass-button w-8 h-8 rounded-xl text-stone-300 flex items-center justify-center text-xs" title="Reset Viewpoint">
+                    <i class="fa-solid fa-compress"></i>
+                </button>
+                <button id="btn-snapshot" class="glass-button px-3 py-1.5 rounded-xl text-xs font-medium text-emerald-300 flex items-center gap-1.5" title="Take High-Res Photograph">
+                    <i class="fa-solid fa-camera"></i> <span class="hidden md:inline">Photo</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Floating Eco Stats (Left) -->
+    <div class="absolute left-4 top-24 z-20 pointer-events-none hidden md:flex flex-col gap-2">
+        <div class="glass-panel rounded-2xl p-3 pointer-events-auto flex flex-col gap-2 w-44">
+            <div class="flex items-center justify-between text-xs text-stone-300">
+                <span class="flex items-center gap-1.5 text-sky-400 font-medium">
+                    <i class="fa-solid fa-droplet"></i> Glass Moisture
+                </span>
+                <span id="humidity-display" class="font-mono text-emerald-300">45%</span>
+            </div>
+            <div class="w-full bg-black/40 h-1.5 rounded-full overflow-hidden">
+                <div id="humidity-bar" class="h-full bg-gradient-to-r from-sky-500 to-emerald-400 transition-all duration-500" style="width: 45%;"></div>
+            </div>
+
+            <div class="flex items-center justify-between text-xs text-stone-300 mt-1">
+                <span class="flex items-center gap-1.5 text-amber-400 font-medium">
+                    <i class="fa-solid fa-seedling"></i> Plant Life
+                </span>
+                <span id="items-count" class="font-mono text-stone-200">0</span>
+            </div>
+
+            <div class="pt-2 border-t border-white/10 flex gap-1.5">
+                <button id="btn-preset-zen" class="flex-1 glass-button py-1 text-[11px] rounded-lg text-emerald-300">Preset</button>
+                <button id="btn-clear-all" class="glass-button px-2.5 py-1 text-[11px] rounded-lg text-rose-400 hover:text-rose-300" title="Clear all plants"><i class="fa-solid fa-trash-can"></i></button>
+            </div>
+        </div>
+
+        <!-- Spray Mist Action Button -->
+        <button id="btn-spray-mist" class="glass-panel group rounded-2xl p-3 pointer-events-auto flex items-center gap-3 hover:border-sky-400/50 transition shadow-lg text-left">
+            <div class="w-10 h-10 rounded-xl bg-sky-500/20 text-sky-400 flex items-center justify-center group-hover:scale-110 transition border border-sky-400/30">
+                <i class="fa-solid fa-spray-can text-lg"></i>
+            </div>
+            <div>
+                <div class="text-xs font-semibold text-sky-100 flex items-center gap-1">Spray Mist <span class="w-1.5 h-1.5 rounded-full bg-sky-400 animate-ping"></span></div>
+                <div class="text-[10px] text-stone-400">Condenses water drops</div>
+            </div>
+        </button>
+    </div>
+
+    <!-- Active Selection Inspector (Top Right) -->
+    <div id="inspector-panel" class="absolute right-4 top-24 z-20 pointer-events-auto glass-panel rounded-2xl p-4 w-64 shadow-2xl flex flex-col gap-3 hidden transition-all">
+        <div class="flex items-center justify-between border-b border-white/10 pb-2">
+            <div class="flex items-center gap-2">
+                <div id="inspector-icon" class="w-6 h-6 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-xs">
+                    <i class="fa-solid fa-leaf"></i>
+                </div>
+                <span id="inspector-name" class="text-sm font-semibold text-emerald-100">Succulent</span>
+            </div>
+            <button id="inspector-close" class="text-stone-400 hover:text-white text-xs p-1">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </div>
+
+        <div class="space-y-3 text-xs">
+            <!-- Scale Slider -->
+            <div>
+                <div class="flex justify-between text-stone-400 mb-1">
+                    <span>Size / Scale</span>
+                    <span id="val-scale" class="font-mono text-emerald-400">1.0x</span>
+                </div>
+                <input id="slider-scale" type="range" min="0.5" max="2.0" step="0.1" value="1.0" class="w-full accent-emerald-500 cursor-pointer">
+            </div>
+
+            <!-- Rotation Slider -->
+            <div>
+                <div class="flex justify-between text-stone-400 mb-1">
+                    <span>Rotate Orientation</span>
+                    <span id="val-rotation" class="font-mono text-emerald-400">0°</span>
+                </div>
+                <input id="slider-rotation" type="range" min="0" max="360" step="5" value="0" class="w-full accent-emerald-500 cursor-pointer">
+            </div>
+
+            <!-- Actions -->
+            <div class="pt-2 flex gap-2">
+                <button id="btn-duplicate" class="glass-button flex-1 py-1.5 rounded-xl text-stone-300 hover:text-white flex items-center justify-center gap-1.5">
+                    <i class="fa-regular fa-copy"></i> Clone
+                </button>
+                <button id="btn-delete-item" class="glass-button px-3 py-1.5 rounded-xl text-rose-400 hover:bg-rose-500/20 border-rose-500/30 flex items-center justify-center gap-1.5">
+                    <i class="fa-solid fa-trash-can"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bottom Botanical Catalog / Tool Dock -->
+    <div class="absolute bottom-5 left-1/2 -translate-x-1/2 z-20 w-11/12 max-w-4xl pointer-events-none">
+        <div class="glass-panel rounded-3xl p-3 shadow-2xl pointer-events-auto flex flex-col gap-2.5">
+            <!-- Catalog Categories -->
+            <div class="flex items-center justify-between px-2 text-xs">
+                <div class="flex gap-2">
+                    <button class="cat-btn font-semibold px-3 py-1 rounded-xl text-emerald-300 bg-emerald-500/15 border border-emerald-500/30" data-category="plants">
+                        <i class="fa-solid fa-leaf mr-1"></i> Plants
+                    </button>
+                    <button class="cat-btn font-medium px-3 py-1 rounded-xl text-stone-400 hover:text-white hover:bg-white/5" data-category="crystals">
+                        <i class="fa-solid fa-gem mr-1"></i> Crystals & Stones
+                    </button>
+                    <button class="cat-btn font-medium px-3 py-1 rounded-xl text-stone-400 hover:text-white hover:bg-white/5" data-category="accents">
+                        <i class="fa-solid fa-tree mr-1"></i> Moss & Wood
+                    </button>
+                </div>
+                <div class="text-[11px] text-stone-400 hidden sm:flex items-center gap-1">
+                    <i class="fa-regular fa-hand-pointer text-emerald-400"></i> Click element to place or edit
+                </div>
+            </div>
+
+            <!-- Item Strip -->
+            <div id="catalog-strip" class="flex items-center gap-2.5 overflow-x-auto pb-1 px-1">
+                <!-- Dynamically populated -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Notification Toast -->
+    <div id="toast-message" class="absolute bottom-24 left-1/2 -translate-x-1/2 z-50 glass-panel px-4 py-2 rounded-2xl text-xs font-medium text-emerald-200 border border-emerald-500/40 opacity-0 pointer-events-none transition-all duration-300 flex items-center gap-2 shadow-2xl">
+        <i class="fa-solid fa-circle-check text-emerald-400"></i>
+        <span id="toast-text">Plant placed! Drag to reposition.</span>
+    </div>
+
+    <!-- Snapshot Flash Effect -->
+    <div id="camera-flash" class="absolute inset-0 bg-white opacity-0 pointer-events-none z-50 transition-opacity duration-300"></div>
+
+    <script>
+        // --- Studio State ---
+        const state = {
+            vessel: 'cloche', // cloche | geo | flask
+            mood: 'noon', // noon | sunset | night
+            soundEnabled: true,
+            humidity: 45,
+            items: [],
+            selectedItem: null,
+            isDragging: false,
+            audioReady: false
+        };
+
+        // --- Sound Synthesizer (Tone.js) ---
+        let audioSynth = null;
+        let mistNoise = null;
+        let ambientChime = null;
+
+        function initAudio() {
+            if (state.audioReady) return;
+            try {
+                // Pluck for placing plants
+                audioSynth = new Tone.PolySynth(Tone.Synth, {
+                    oscillator: { type: 'sine' },
+                    envelope: { attack: 0.01, decay: 0.3, sustain: 0.05, release: 0.8 }
+                }).toDestination();
+                audioSynth.volume.value = -12;
+
+                // Noise burst for water spray mist
+                const filter = new Tone.Filter(800, 'lowpass').toDestination();
+                mistNoise = new Tone.NoiseSynth({
+                    noise: { type: 'pink' },
+                    envelope: { attack: 0.05, decay: 0.4, sustain: 0.1, release: 0.6 }
+                }).connect(filter);
+                mistNoise.volume.value = -16;
+
+                state.audioReady = true;
+            } catch (err) {
+                console.warn('Audio initialization deferred:', err);
+            }
+        }
+
+        function playSound(type) {
+            if (!state.soundEnabled) return;
+            initAudio();
+            if (Tone.context.state !== 'running') {
+                Tone.start();
+            }
+            try {
+                if (type === 'plant') {
+                    const notes = ['E5', 'G5', 'A5', 'C6', 'D6'];
+                    const note = notes[Math.floor(Math.random() * notes.length)];
+                    audioSynth && audioSynth.triggerAttackRelease(note, '8n');
+                } else if (type === 'mist') {
+                    mistNoise && mistNoise.triggerAttackRelease('8n');
+                } else if (type === 'prune') {
+                    audioSynth && audioSynth.triggerAttackRelease('C4', '16n');
+                } else if (type === 'select') {
+                    audioSynth && audioSynth.triggerAttackRelease('F5', '32n');
+                }
+            } catch(e) {}
+        }
+
+        // --- Three.js Setup ---
+        const container = document.getElementById('viewport-container');
+        const scene = new THREE.Scene();
+        scene.fog = new THREE.FogExp2(0x0c0f0e, 0.035);
+
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+        camera.position.set(0, 3.2, 7.5);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 1.15;
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        container.appendChild(renderer.domElement);
+
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+        controls.maxPolarAngle = Math.PI / 2 + 0.05; // Prevent moving underneath the table
+        controls.minDistance = 3.5;
+        controls.maxDistance = 12.0;
+        controls.target.set(0, 1.2, 0);
+
+        // --- Studio Lighting Rig ---
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        scene.add(ambientLight);
+
+        const sunLight = new THREE.DirectionalLight(0xfffaed, 1.8);
+        sunLight.position.set(5, 8, 4);
+        sunLight.castShadow = true;
+        sunLight.shadow.mapSize.width = 1024;
+        sunLight.shadow.mapSize.height = 1024;
+        sunLight.shadow.camera.near = 0.5;
+        sunLight.shadow.camera.far = 20;
+        sunLight.shadow.bias = -0.001;
+        scene.add(sunLight);
+
+        const fillLight = new THREE.DirectionalLight(0xa5f3fc, 0.5);
+        fillLight.position.set(-5, 3, -3);
+        scene.add(fillLight);
+
+        const terrariumGlow = new THREE.PointLight(0x34d399, 0, 4);
+        terrariumGlow.position.set(0, 1.5, 0);
+        scene.add(terrariumGlow);
+
+        // --- Procedural Textures ---
+        function createWoodPedestalTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 512;
+            canvas.height = 512;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#291b15';
+            ctx.fillRect(0, 0, 512, 512);
+
+            // Subtle wood rings
+            for (let i = 0; i < 200; i++) {
+                ctx.beginPath();
+                ctx.arc(256, 256, i * 2.5, 0, Math.PI * 2);
+                ctx.strokeStyle = `rgba(62, 42, 33, ${0.15 + Math.random() * 0.1})`;
+                ctx.lineWidth = 1 + Math.random() * 2;
+                ctx.stroke();
+            }
+            return new THREE.CanvasTexture(canvas);
+        }
+
+        // --- Pedestal & Soil Base ---
+        const pedestalGroup = new THREE.Group();
+        scene.add(pedestalGroup);
+
+        const woodTex = createWoodPedestalTexture();
+        const pedestalMat = new THREE.MeshStandardMaterial({
+            color: 0x3d271d,
+            map: woodTex,
+            roughness: 0.6,
+            metalness: 0.1
+        });
+        const pedestal = new THREE.Mesh(
+            new THREE.CylinderGeometry(2.1, 2.3, 0.35, 48),
+            pedestalMat
+        );
+        pedestal.position.y = -0.175;
+        pedestal.receiveShadow = true;
+        pedestalGroup.add(pedestal);
+
+        // Ground Terrain Target (For Raycasting plant placement)
+        const soilGroup = new THREE.Group();
+        scene.add(soilGroup);
+
+        // Drainage Gravel layer (Base)
+        const gravelMat = new THREE.MeshStandardMaterial({ color: 0x57534e, roughness: 0.9 });
+        const gravelLayer = new THREE.Mesh(new THREE.CylinderGeometry(1.7, 1.8, 0.2, 36), gravelMat);
+        gravelLayer.position.y = 0.1;
+        soilGroup.add(gravelLayer);
+
+        // Charcoal / Substrate layer
+        const charcoalMat = new THREE.MeshStandardMaterial({ color: 0x1f1f22, roughness: 0.95 });
+        const charcoalLayer = new THREE.Mesh(new THREE.CylinderGeometry(1.68, 1.7, 0.12, 36), charcoalMat);
+        charcoalLayer.position.y = 0.26;
+        soilGroup.add(charcoalLayer);
+
+        // Rich Soil Mound with subtle curvature
+        const soilGeo = new THREE.CylinderGeometry(1.65, 1.68, 0.35, 48, 4);
+        const posAttr = soilGeo.attributes.position;
+        for (let i = 0; i < posAttr.count; i++) {
+            const y = posAttr.getY(i);
+            const x = posAttr.getX(i);
+            const z = posAttr.getZ(i);
+            if (y > 0.1) {
+                // Crown the soil mound in center
+                const dist = Math.sqrt(x * x + z * z);
+                posAttr.setY(i, y + Math.max(0, (1.6 - dist) * 0.22));
+            }
+        }
+        soilGeo.computeVertexNormals();
+
+        const soilMat = new THREE.MeshStandardMaterial({
+            color: 0x271a14,
+            roughness: 0.88,
+            metalness: 0.05
+        });
+        const soilMound = new THREE.Mesh(soilGeo, soilMat);
+        soilMound.position.y = 0.45;
+        soilMound.receiveShadow = true;
+        soilGroup.add(soilMound);
+
+        // Raycasting terrain mesh reference
+        const terrainTarget = soilMound;
+
+        // Cushion Moss Bed Cap
+        const mossMat = new THREE.MeshStandardMaterial({
+            color: 0x2e5a1c,
+            roughness: 0.95,
+            metalness: 0.0
+        });
+        const mossBed = new THREE.Mesh(new THREE.CircleGeometry(1.4, 32), mossMat);
+        mossBed.rotation.x = -Math.PI / 2;
+        mossBed.position.y = 0.64;
+        mossBed.receiveShadow = true;
+        soilGroup.add(mossBed);
+
+        // --- 3D Glass Vessels & Shaders ---
+        const vesselGroup = new THREE.Group();
+        scene.add(vesselGroup);
+
+        const glassMaterial = new THREE.MeshPhysicalMaterial({
+            color: 0xe0f2fe,
+            transparent: true,
+            opacity: 0.32,
+            transmission: 0.88,
+            roughness: 0.08,
+            metalness: 0.05,
+            ior: 1.48,
+            thickness: 0.4,
+            specularIntensity: 1.0,
+            specularColor: 0xffffff,
+            depthWrite: false,
+            side: THREE.DoubleSide
+        });
+
+        let currentGlassMesh = null;
+        let currentRimMesh = null;
+
+        function buildVessel(type) {
+            // Remove previous glass
+            while (vesselGroup.children.length > 0) {
+                const child = vesselGroup.children[0];
+                vesselGroup.remove(child);
+                if (child.geometry) child.geometry.dispose();
+            }
+
+            if (type === 'cloche') {
+                // Bell Jar Cloche (Cylinder with dome cap & knob handle)
+                const clocheGeo = new THREE.CylinderGeometry(1.85, 1.85, 3.2, 48, 1, true);
+                const clocheBody = new THREE.Mesh(clocheGeo, glassMaterial);
+                clocheBody.position.y = 1.9;
+
+                const domeGeo = new THREE.SphereGeometry(1.85, 48, 24, 0, Math.PI * 2, 0, Math.PI / 2);
+                const dome = new THREE.Mesh(domeGeo, glassMaterial);
+                dome.position.y = 3.5;
+
+                const knobGeo = new THREE.SphereGeometry(0.28, 24, 24);
+                const knob = new THREE.Mesh(knobGeo, glassMaterial);
+                knob.position.y = 5.4;
+
+                const rimGeo = new THREE.TorusGeometry(1.85, 0.04, 16, 64);
+                const rim = new THREE.Mesh(rimGeo, new THREE.MeshStandardMaterial({ color: 0x94a3b8, roughness: 0.3, metalness: 0.8 }));
+                rim.rotation.x = Math.PI / 2;
+                rim.position.y = 0.3;
+
+                vesselGroup.add(clocheBody, dome, knob, rim);
+                currentGlassMesh = clocheBody;
+
+            } else if (type === 'geo') {
+                // Geometric Wardian Dodecahedron Prism
+                const geoShape = new THREE.IcosahedronGeometry(2.2, 0);
+                const geoMesh = new THREE.Mesh(geoShape, glassMaterial);
+                geoMesh.position.y = 2.4;
+                geoMesh.scale.set(1.0, 1.25, 1.0);
+
+                // Brass wireframe edges
+                const wireframe = new THREE.WireframeGeometry(geoShape);
+                const line = new THREE.LineSegments(wireframe);
+                line.material.color = new THREE.Color(0xd97706);
+                line.material.linewidth = 2;
+                line.position.copy(geoMesh.position);
+                line.scale.copy(geoMesh.scale);
+
+                vesselGroup.add(geoMesh, line);
+                currentGlassMesh = geoMesh;
+
+            } else if (type === 'flask') {
+                // Apothecary Flask with Cork
+                const flaskBaseGeo = new THREE.SphereGeometry(2.1, 48, 36);
+                const flaskBase = new THREE.Mesh(flaskBaseGeo, glassMaterial);
+                flaskBase.position.y = 2.0;
+
+                const neckGeo = new THREE.CylinderGeometry(0.7, 0.9, 1.6, 36, 1, true);
+                const neck = new THREE.Mesh(neckGeo, glassMaterial);
+                neck.position.y = 4.0;
+
+                // Cork stopper
+                const corkMat = new THREE.MeshStandardMaterial({ color: 0xb45309, roughness: 0.9 });
+                const cork = new THREE.Mesh(new THREE.CylinderGeometry(0.68, 0.6, 0.6, 32), corkMat);
+                cork.position.y = 4.7;
+
+                vesselGroup.add(flaskBase, neck, cork);
+                currentGlassMesh = flaskBase;
+            }
+        }
+
+        buildVessel('cloche');
+
+        // --- Procedural Flora & Mineral Builders ---
+        const plantContainer = new THREE.Group();
+        scene.add(plantContainer);
+
+        function createSucculent() {
+            const group = new THREE.Group();
+            const petalMat = new THREE.MeshStandardMaterial({
+                color: 0x2dd4bf,
+                roughness: 0.45,
+                metalness: 0.05
+            });
+
+            // Layered concentric rosette petals
+            const tiers = [
+                { count: 5, radius: 0.16, scale: 0.35, tilt: 0.6 },
+                { count: 7, radius: 0.32, scale: 0.5, tilt: 0.45 },
+                { count: 9, radius: 0.48, scale: 0.65, tilt: 0.3 }
+            ];
+
+            tiers.forEach((tier, tIdx) => {
+                for (let i = 0; i < tier.count; i++) {
+                    const angle = (i / tier.count) * Math.PI * 2 + (tIdx * 0.4);
+                    const petalGeo = new THREE.ConeGeometry(0.2, 0.6, 5);
+                    petalGeo.scale(0.8, 1, 0.3); // Flatten to petal shape
+                    const petal = new THREE.Mesh(petalGeo, petalMat);
+                    petal.castShadow = true;
+
+                    petal.position.x = Math.cos(angle) * tier.radius;
+                    petal.position.z = Math.sin(angle) * tier.radius;
+                    petal.position.y = (3 - tIdx) * 0.08;
+
+                    petal.rotation.y = -angle;
+                    petal.rotation.z = tier.tilt;
+                    group.add(petal);
+                }
+            });
+
+            // Rose gold core center
+            const core = new THREE.Mesh(
+                new THREE.SphereGeometry(0.12, 12, 12),
+                new THREE.MeshStandardMaterial({ color: 0xf43f5e, roughness: 0.5 })
+            );
+            core.position.y = 0.3;
+            group.add(core);
+
+            group.userData = { type: 'succulent', name: 'Echeveria Succulent', icon: 'fa-leaf' };
+            return group;
+        }
+
+        function createFern() {
+            const group = new THREE.Group();
+            const stemMat = new THREE.MeshStandardMaterial({ color: 0x15803d, roughness: 0.6 });
+            const leafMat = new THREE.MeshStandardMaterial({ color: 0x4ade80, roughness: 0.5, side: THREE.DoubleSide });
+
+            // 6 curving arch fronds
+            for (let f = 0; f < 6; f++) {
+                const frondAngle = (f / 6) * Math.PI * 2 + (Math.random() * 0.2);
+                const frondGroup = new THREE.Group();
+
+                const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.04, 1.2, 8), stemMat);
+                stem.position.y = 0.6;
+                stem.castShadow = true;
+                frondGroup.add(stem);
+
+                // Leaflets along frond
+                for (let l = 0; l < 8; l++) {
+                    const lY = 0.25 + l * 0.11;
+                    const lScale = (1 - l * 0.09) * 0.3;
+
+                    const leftLeaf = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.4, 4), leafMat);
+                    leftLeaf.scale.set(lScale, lScale, 0.1);
+                    leftLeaf.position.set(-0.12 * (l + 1) * 0.15, lY, 0);
+                    leftLeaf.rotation.z = Math.PI / 3;
+
+                    const rightLeaf = leftLeaf.clone();
+                    rightLeaf.position.set(0.12 * (l + 1) * 0.15, lY, 0);
+                    rightLeaf.rotation.z = -Math.PI / 3;
+
+                    frondGroup.add(leftLeaf, rightLeaf);
+                }
+
+                frondGroup.rotation.y = frondAngle;
+                frondGroup.rotation.x = 0.38 + Math.random() * 0.15;
+                group.add(frondGroup);
+            }
+
+            group.userData = { type: 'fern', name: 'Sword Fern', icon: 'fa-plant-wilt' };
+            return group;
+        }
+
+        function createMushroom() {
+            const group = new THREE.Group();
+            const stemMat = new THREE.MeshStandardMaterial({ color: 0xf1f5f9, roughness: 0.8 });
+            const capMat = new THREE.MeshStandardMaterial({
+                color: 0x0284c7,
+                emissive: 0x0ea5e9,
+                emissiveIntensity: 0.6,
+                roughness: 0.3
+            });
+
+            // Clustered trio of mushrooms
+            const mushrooms = [
+                { x: 0, z: 0, h: 0.75, r: 0.32 },
+                { x: 0.2, z: 0.15, h: 0.5, r: 0.22 },
+                { x: -0.18, z: 0.1, h: 0.35, r: 0.18 }
+            ];
+
+            mushrooms.forEach(m => {
+                const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.06, m.h, 12), stemMat);
+                stem.position.set(m.x, m.h / 2, m.z);
+                stem.castShadow = true;
+
+                const cap = new THREE.Mesh(new THREE.SphereGeometry(m.r, 16, 12, 0, Math.PI * 2, 0, Math.PI / 2), capMat);
+                cap.position.set(m.x, m.h, m.z);
+                cap.castShadow = true;
+
+                group.add(stem, cap);
+            });
+
+            group.userData = { type: 'mushroom', name: 'Bioluminescent Cap', icon: 'fa-shield-halved' };
+            return group;
+        }
+
+        function createCrystal() {
+            const group = new THREE.Group();
+            const crystalMat = new THREE.MeshPhysicalMaterial({
+                color: 0xc084fc,
+                emissive: 0x9333ea,
+                emissiveIntensity: 0.3,
+                roughness: 0.1,
+                transmission: 0.7,
+                thickness: 0.8,
+                ior: 1.55
+            });
+
+            // Natural cluster of quartz shards
+            const shards = [
+                { h: 0.9, r: 0.16, x: 0, z: 0, rx: 0.1, rz: 0.05 },
+                { h: 0.65, r: 0.13, x: 0.2, z: -0.1, rx: 0.3, rz: 0.2 },
+                { h: 0.5, r: 0.11, x: -0.15, z: 0.12, rx: -0.2, rz: -0.3 },
+                { h: 0.35, r: 0.09, x: 0.05, z: 0.22, rx: 0.25, rz: 0.1 }
+            ];
+
+            shards.forEach(s => {
+                const geo = new THREE.CylinderGeometry(0, s.r, s.h, 6);
+                const shard = new THREE.Mesh(geo, crystalMat);
+                shard.position.set(s.x, s.h / 2, s.z);
+                shard.rotation.x = s.rx;
+                shard.rotation.z = s.rz;
+                shard.castShadow = true;
+                group.add(shard);
+            });
+
+            group.userData = { type: 'crystal', name: 'Amethyst Quartz', icon: 'fa-gem' };
+            return group;
+        }
+
+        function createMossRock() {
+            const group = new THREE.Group();
+            // Irregular perturbed rock
+            const rockGeo = new THREE.DodecahedronGeometry(0.42, 1);
+            const pos = rockGeo.attributes.position;
+            for (let i = 0; i < pos.count; i++) {
+                pos.setX(i, pos.getX(i) * (0.8 + Math.random() * 0.35));
+                pos.setY(i, pos.getY(i) * (0.6 + Math.random() * 0.25));
+                pos.setZ(i, pos.getZ(i) * (0.8 + Math.random() * 0.35));
+            }
+            rockGeo.computeVertexNormals();
+
+            const rockMat = new THREE.MeshStandardMaterial({ color: 0x475569, roughness: 0.85 });
+            const rock = new THREE.Mesh(rockGeo, rockMat);
+            rock.position.y = 0.22;
+            rock.castShadow = true;
+            rock.receiveShadow = true;
+            group.add(rock);
+
+            // Velvet Moss patch on top
+            const mossPatch = new THREE.Mesh(
+                new THREE.SphereGeometry(0.28, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2),
+                new THREE.MeshStandardMaterial({ color: 0x65a30d, roughness: 0.95 })
+            );
+            mossPatch.scale.set(1.1, 0.4, 1.0);
+            mossPatch.position.set(0, 0.35, 0);
+            group.add(mossPatch);
+
+            group.userData = { type: 'moss_rock', name: 'River Rock & Moss', icon: 'fa-mountain' };
+            return group;
+        }
+
+        function createDriftwood() {
+            const group = new THREE.Group();
+            const woodMat = new THREE.MeshStandardMaterial({ color: 0x5c4033, roughness: 0.85 });
+
+            const branch1 = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.1, 1.2, 8), woodMat);
+            branch1.position.set(0, 0.45, 0);
+            branch1.rotation.z = Math.PI / 3.5;
+            branch1.rotation.y = 0.2;
+            branch1.castShadow = true;
+
+            const branch2 = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.06, 0.6, 8), woodMat);
+            branch2.position.set(0.2, 0.6, 0.1);
+            branch2.rotation.z = -Math.PI / 4;
+            branch2.castShadow = true;
+
+            group.add(branch1, branch2);
+            group.userData = { type: 'wood', name: 'Curved Driftwood', icon: 'fa-tree' };
+            return group;
+        }
+
+        // Mapping dictionary
+        const generators = {
+            'succulent': createSucculent,
+            'fern': createFern,
+            'mushroom': createMushroom,
+            'crystal': createCrystal,
+            'moss_rock': createMossRock,
+            'driftwood': createDriftwood
+        };
+
+        // --- Spores, Fireflies & Water Condensation ---
+        // Fireflies / Spore Particles
+        const particleCount = 40;
+        const particleGeo = new THREE.BufferGeometry();
+        const particlePositions = new Float32Array(particleCount * 3);
+        const particleVelocities = [];
+
+        for (let i = 0; i < particleCount; i++) {
+            particlePositions[i * 3 + 0] = (Math.random() - 0.5) * 2.8;
+            particlePositions[i * 3 + 1] = 0.8 + Math.random() * 2.5;
+            particlePositions[i * 3 + 2] = (Math.random() - 0.5) * 2.8;
+            particleVelocities.push({
+                x: (Math.random() - 0.5) * 0.005,
+                y: (Math.random() - 0.5) * 0.004,
+                z: (Math.random() - 0.5) * 0.005
+            });
+        }
+        particleGeo.setAttribute('position', new THREE.BufferAttribute(particlePositions, 3));
+
+        const particleMat = new THREE.PointsMaterial({
+            color: 0x6ee7b7,
+            size: 0.08,
+            transparent: true,
+            opacity: 0.7,
+            blending: THREE.AdditiveBlending
+        });
+        const fireflySystem = new THREE.Points(particleGeo, particleMat);
+        scene.add(fireflySystem);
+
+        // Water droplets on Glass interior
+        const dropletCount = 60;
+        const dropletGroup = new THREE.Group();
+        scene.add(dropletGroup);
+
+        const dropletMat = new THREE.MeshPhysicalMaterial({
+            color: 0xffffff,
+            roughness: 0.05,
+            transmission: 0.9,
+            transparent: true,
+            opacity: 0.5,
+            ior: 1.33
+        });
+
+        for (let i = 0; i < dropletCount; i++) {
+            const drop = new THREE.Mesh(new THREE.SphereGeometry(0.03 + Math.random() * 0.035, 8, 8), dropletMat);
+            const theta = Math.random() * Math.PI * 2;
+            const r = 1.8; // Cloche inner radius
+            const y = 1.0 + Math.random() * 2.4;
+            drop.position.set(Math.cos(theta) * r, y, Math.sin(theta) * r);
+            drop.scale.set(1, 1.4, 0.4);
+            drop.lookAt(0, y, 0);
+            dropletGroup.add(drop);
+        }
+        dropletGroup.visible = false; // Triggered when spraying mist
+
+        // Selection Ring Marker
+        const ringGeo = new THREE.RingGeometry(0.4, 0.46, 32);
+        const ringMat = new THREE.MeshBasicMaterial({ color: 0x34d399, side: THREE.DoubleSide });
+        const selectionRing = new THREE.Mesh(ringGeo, ringMat);
+        selectionRing.rotation.x = -Math.PI / 2;
+        selectionRing.visible = false;
+        scene.add(selectionRing);
+
+        // --- Raycasting, Drag & Drop Logic ---
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+        let hoveredObject = null;
+        let isPointerDownOnObject = false;
+        let dragPlane = new THREE.Plane();
+        let planeIntersection = new THREE.Vector3();
+
+        function showToast(message) {
+            const toast = document.getElementById('toast-message');
+            document.getElementById('toast-text').innerText = message;
+            toast.classList.remove('opacity-0', 'pointer-events-none');
+            toast.classList.add('opacity-100');
+            clearTimeout(toast.timer);
+            toast.timer = setTimeout(() => {
+                toast.classList.add('opacity-0', 'pointer-events-none');
+                toast.classList.remove('opacity-100');
+            }, 2600);
+        }
+
+        function updateEcoStats() {
+            document.getElementById('items-count').innerText = state.items.length;
+            document.getElementById('humidity-display').innerText = `${state.humidity}%`;
+            document.getElementById('humidity-bar').style.width = `${state.humidity}%`;
+        }
+
+        function selectItem(itemGroup) {
+            state.selectedItem = itemGroup;
+            if (itemGroup) {
+                selectionRing.visible = true;
+                selectionRing.position.copy(itemGroup.position);
+                selectionRing.position.y = 0.65; // Just above moss
+
+                // Show inspector
+                document.getElementById('inspector-panel').classList.remove('hidden');
+                document.getElementById('inspector-name').innerText = itemGroup.userData.name || 'Botanical';
+                document.getElementById('inspector-icon').innerHTML = `<i class="fa-solid ${itemGroup.userData.icon || 'fa-leaf'}"></i>`;
+                document.getElementById('slider-scale').value = itemGroup.scale.x;
+                document.getElementById('val-scale').innerText = `${itemGroup.scale.x.toFixed(1)}x`;
+                document.getElementById('slider-rotation').value = Math.round((itemGroup.rotation.y * 180) / Math.PI) % 360;
+                document.getElementById('val-rotation').innerText = `${Math.round((itemGroup.rotation.y * 180) / Math.PI) % 360}°`;
+                playSound('select');
+            } else {
+                selectionRing.visible = false;
+                document.getElementById('inspector-panel').classList.add('hidden');
+            }
+        }
+
+        function spawnPlantAt(typeKey, targetPosition) {
+            const gen = generators[typeKey];
+            if (!gen) return;
+
+            const newObject = gen();
+            newObject.position.copy(targetPosition);
+            // Default random natural angle
+            newObject.rotation.y = Math.random() * Math.PI * 2;
+            
+            // Pop entrance animation
+            newObject.scale.set(0.01, 0.01, 0.01);
+            plantContainer.add(newObject);
+            state.items.push(newObject);
+
+            // Animate scale to 1.0
+            let t = 0;
+            const animatePop = () => {
+                t += 0.08;
+                const s = Math.min(1.0, Math.sin(t * Math.PI * 0.5) * 1.1);
+                newObject.scale.set(s, s, s);
+                if (t < 1.0) requestAnimationFrame(animatePop);
+                else newObject.scale.set(1, 1, 1);
+            };
+            animatePop();
+
+            selectItem(newObject);
+            updateEcoStats();
+            playSound('plant');
+            showToast(`Planted ${newObject.userData.name}!`);
+        }
+
+        // Pointer event handlers on Canvas
+        function getPointerPos(e) {
+            const rect = renderer.domElement.getBoundingClientRect();
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+            return {
+                x: ((clientX - rect.left) / rect.width) * 2 - 1,
+                y: -((clientY - rect.top) / rect.height) * 2 + 1
+            };
+        }
+
+        window.addEventListener('pointerdown', (e) => {
+            // Ignore UI clicks
+            if (e.target.closest('.glass-panel') || e.target.closest('button') || e.target.closest('input')) return;
+
+            const pos = getPointerPos(e);
+            mouse.x = pos.x;
+            mouse.y = pos.y;
+            raycaster.setFromCamera(mouse, camera);
+
+            // Check if clicking existing plant in terrarium
+            const plantIntersects = raycaster.intersectObjects(plantContainer.children, true);
+            if (plantIntersects.length > 0) {
+                // Find top group
+                let target = plantIntersects[0].object;
+                while (target.parent && target.parent !== plantContainer) {
+                    target = target.parent;
+                }
+                selectItem(target);
+                isPointerDownOnObject = true;
+                controls.enabled = false; // Disable orbit controls while dragging plant
+
+                // Set drag plane parallel to ground at plant height
+                dragPlane.setFromNormalAndCoplanarPoint(new THREE.Vector3(0, 1, 0), target.position);
+                return;
+            }
+
+            // Clicked background or soil: if clicking soil, move current selection or deselect
+            const soilIntersects = raycaster.intersectObject(terrainTarget);
+            if (soilIntersects.length > 0 && state.selectedItem) {
+                // Move selected item to clicked soil spot
+                const pt = soilIntersects[0].point;
+                const distFromCenter = Math.sqrt(pt.x * pt.x + pt.z * pt.z);
+                if (distFromCenter < 1.45) {
+                    state.selectedItem.position.x = pt.x;
+                    state.selectedItem.position.z = pt.z;
+                    selectionRing.position.copy(state.selectedItem.position);
+                    selectionRing.position.y = 0.65;
+                }
+            } else if (soilIntersects.length === 0) {
+                selectItem(null);
+            }
+        });
+
+        window.addEventListener('pointermove', (e) => {
+            const pos = getPointerPos(e);
+            mouse.x = pos.x;
+            mouse.y = pos.y;
+
+            if (isPointerDownOnObject && state.selectedItem) {
+                raycaster.setFromCamera(mouse, camera);
+                if (raycaster.ray.intersectPlane(dragPlane, planeIntersection)) {
+                    // Confine strictly inside terrarium boundaries
+                    const distFromCenter = Math.sqrt(planeIntersection.x * planeIntersection.x + planeIntersection.z * planeIntersection.z);
+                    if (distFromCenter < 1.45) {
+                        state.selectedItem.position.x = planeIntersection.x;
+                        state.selectedItem.position.z = planeIntersection.z;
+                        selectionRing.position.copy(state.selectedItem.position);
+                        selectionRing.position.y = 0.65;
+                    }
+                }
+            }
+        });
+
+        window.addEventListener('pointerup', () => {
+            isPointerDownOnObject = false;
+            controls.enabled = true;
+        });
+
+        // --- Lighting & Environment Moods ---
+        function setMood(mood) {
+            state.mood = mood;
+            document.querySelectorAll('[id^="btn-mood-"]').forEach(b => b.classList.remove('active'));
+            document.getElementById(`btn-mood-${mood}`).classList.add('active');
+
+            if (mood === 'noon') {
+                ambientLight.intensity = 0.65;
+                ambientLight.color.setHex(0xffffff);
+                sunLight.intensity = 1.8;
+                sunLight.color.setHex(0xfffaed);
+                sunLight.position.set(5, 8, 4);
+                fillLight.intensity = 0.5;
+                fillLight.color.setHex(0xa5f3fc);
+                terrariumGlow.intensity = 0;
+                scene.fog.color.setHex(0x0c0f0e);
+                renderer.setClearColor(0x0c0f0e, 1);
+                particleMat.color.setHex(0x6ee7b7);
+            } else if (mood === 'sunset') {
+                ambientLight.intensity = 0.4;
+                ambientLight.color.setHex(0xfda4af);
+                sunLight.intensity = 2.2;
+                sunLight.color.setHex(0xf97316);
+                sunLight.position.set(7, 3, 2);
+                fillLight.intensity = 0.7;
+                fillLight.color.setHex(0x818cf8);
+                terrariumGlow.intensity = 0.5;
+                terrariumGlow.color.setHex(0xf59e0b);
+                scene.fog.color.setHex(0x1a0d18);
+                renderer.setClearColor(0x1a0d18, 1);
+                particleMat.color.setHex(0xfde047);
+            } else if (mood === 'night') {
+                ambientLight.intensity = 0.15;
+                ambientLight.color.setHex(0x38bdf8);
+                sunLight.intensity = 0.4;
+                sunLight.color.setHex(0x60a5fa);
+                sunLight.position.set(-3, 6, -3);
+                fillLight.intensity = 0.3;
+                fillLight.color.setHex(0x818cf8);
+                terrariumGlow.intensity = 2.4;
+                terrariumGlow.color.setHex(0x34d399);
+                scene.fog.color.setHex(0x04080a);
+                renderer.setClearColor(0x04080a, 1);
+                particleMat.color.setHex(0x38bdf8);
+            }
+        }
+
+        // Preset Botanical Garden
+        function loadZenPreset() {
+            // Clear current
+            while (plantContainer.children.length > 0) {
+                plantContainer.remove(plantContainer.children[0]);
+            }
+            state.items = [];
+
+            // Balanced composition
+            const presetItems = [
+                { type: 'fern', pos: new THREE.Vector3(-0.45, 0.65, -0.3), scale: 1.1 },
+                { type: 'succulent', pos: new THREE.Vector3(0.5, 0.65, 0.2), scale: 0.95 },
+                { type: 'mushroom', pos: new THREE.Vector3(0.2, 0.65, -0.4), scale: 1.0 },
+                { type: 'crystal', pos: new THREE.Vector3(-0.55, 0.65, 0.35), scale: 0.9 },
+                { type: 'moss_rock', pos: new THREE.Vector3(0.05, 0.65, 0.45), scale: 1.0 },
+                { type: 'driftwood', pos: new THREE.Vector3(-0.1, 0.65, -0.1), scale: 0.85 }
+            ];
+
+            presetItems.forEach(p => {
+                const item = generators[p.type]();
+                item.position.copy(p.pos);
+                item.scale.set(p.scale, p.scale, p.scale);
+                item.rotation.y = Math.random() * Math.PI * 2;
+                plantContainer.add(item);
+                state.items.push(item);
+            });
+
+            selectItem(null);
+            updateEcoStats();
+            showToast('🌿 Zen Moss Sanctuary loaded!');
+        }
+
+        // --- Catalog Strip Population ---
+        const catalogItems = [
+            { id: 'succulent', name: 'Echeveria', category: 'plants', icon: 'fa-leaf', desc: 'Fleshy rosette' },
+            { id: 'fern', name: 'Sword Fern', category: 'plants', icon: 'fa-plant-wilt', desc: 'Graceful fronds' },
+            { id: 'mushroom', name: 'Glow Fungus', category: 'plants', icon: 'fa-shield-halved', desc: 'Bioluminescent' },
+            { id: 'crystal', name: 'Amethyst', category: 'crystals', icon: 'fa-gem', desc: 'Quartz crystal' },
+            { id: 'moss_rock', name: 'River Stone', category: 'crystals', icon: 'fa-mountain', desc: 'Velvet moss rock' },
+            { id: 'driftwood', name: 'Driftwood', category: 'accents', icon: 'fa-tree', desc: 'Aged branch' }
+        ];
+
+        function populateCatalog(category = 'plants') {
+            const strip = document.getElementById('catalog-strip');
+            strip.innerHTML = '';
+
+            const filtered = catalogItems.filter(item => item.category === category);
+            filtered.forEach(item => {
+                const btn = document.createElement('button');
+                btn.className = 'glass-button shrink-0 px-3.5 py-2 rounded-2xl flex items-center gap-3 text-left group hover:scale-105';
+                btn.innerHTML = `
+                    <div class="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-sm group-hover:bg-emerald-500/30 transition">
+                        <i class="fa-solid ${item.icon}"></i>
+                    </div>
+                    <div>
+                        <div class="text-xs font-semibold text-stone-200">${item.name}</div>
+                        <div class="text-[10px] text-stone-400">${item.desc}</div>
+                    </div>
+                `;
+                btn.onclick = () => {
+                    // Spawn near random center spot on moss
+                    const angle = Math.random() * Math.PI * 2;
+                    const r = Math.random() * 0.8;
+                    const pos = new THREE.Vector3(Math.cos(angle) * r, 0.65, Math.sin(angle) * r);
+                    spawnPlantAt(item.id, pos);
+                };
+                strip.appendChild(btn);
+            });
+        }
+
+        populateCatalog('plants');
+
+        // Catalog Category switcher
+        document.querySelectorAll('.cat-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                document.querySelectorAll('.cat-btn').forEach(b => {
+                    b.classList.remove('text-emerald-300', 'bg-emerald-500/15', 'border', 'border-emerald-500/30');
+                    b.classList.add('text-stone-400');
+                });
+                const target = e.currentTarget;
+                target.classList.add('text-emerald-300', 'bg-emerald-500/15', 'border', 'border-emerald-500/30');
+                target.classList.remove('text-stone-400');
+                populateCatalog(target.dataset.category);
+            });
+        });
+
+        // Vessel Selector buttons
+        document.getElementById('btn-vessel-cloche').onclick = () => {
+            state.vessel = 'cloche';
+            document.querySelectorAll('[id^="btn-vessel-"]').forEach(b => b.classList.remove('active'));
+            document.getElementById('btn-vessel-cloche').classList.add('active');
+            buildVessel('cloche');
+            showToast('Victorian Cloche fitted');
+        };
+        document.getElementById('btn-vessel-geo').onclick = () => {
+            state.vessel = 'geo';
+            document.querySelectorAll('[id^="btn-vessel-"]').forEach(b => b.classList.remove('active'));
+            document.getElementById('btn-vessel-geo').classList.add('active');
+            buildVessel('geo');
+            showToast('Geometric Case fitted');
+        };
+        document.getElementById('btn-vessel-flask').onclick = () => {
+            state.vessel = 'flask';
+            document.querySelectorAll('[id^="btn-vessel-"]').forEach(b => b.classList.remove('active'));
+            document.getElementById('btn-vessel-flask').classList.add('active');
+            buildVessel('flask');
+            showToast('Apothecary Flask fitted');
+        };
+
+        // Lighting Mood buttons
+        document.getElementById('btn-mood-noon').onclick = () => setMood('noon');
+        document.getElementById('btn-mood-sunset').onclick = () => setMood('sunset');
+        document.getElementById('btn-mood-night').onclick = () => setMood('night');
+
+        // Spray Mist action
+        document.getElementById('btn-spray-mist').onclick = () => {
+            playSound('mist');
+            dropletGroup.visible = true;
+            state.humidity = Math.min(100, state.humidity + 15);
+            updateEcoStats();
+            showToast('💧 Glass misted! High humidity stimulates growth.');
+
+            // Camera shake effect
+            let shake = 0.05;
+            const originalX = camera.position.x;
+            const originalY = camera.position.y;
+            const interval = setInterval(() => {
+                camera.position.x += (Math.random() - 0.5) * shake;
+                camera.position.y += (Math.random() - 0.5) * shake;
+                shake *= 0.8;
+                if (shake < 0.002) {
+                    clearInterval(interval);
+                    camera.position.x = originalX;
+                    camera.position.y = originalY;
+                }
+            }, 30);
+        };
+
+        // Inspector Controls
+        document.getElementById('slider-scale').oninput = (e) => {
+            if (!state.selectedItem) return;
+            const val = parseFloat(e.target.value);
+            state.selectedItem.scale.set(val, val, val);
+            document.getElementById('val-scale').innerText = `${val.toFixed(1)}x`;
+        };
+        document.getElementById('slider-rotation').oninput = (e) => {
+            if (!state.selectedItem) return;
+            const deg = parseInt(e.target.value);
+            state.selectedItem.rotation.y = (deg * Math.PI) / 180;
+            document.getElementById('val-rotation').innerText = `${deg}°`;
+        };
+        document.getElementById('btn-delete-item').onclick = () => {
+            if (!state.selectedItem) return;
+            plantContainer.remove(state.selectedItem);
+            state.items = state.items.filter(i => i !== state.selectedItem);
+            selectItem(null);
+            updateEcoStats();
+            playSound('prune');
+            showToast('Plant pruned away');
+        };
+        document.getElementById('btn-duplicate').onclick = () => {
+            if (!state.selectedItem) return;
+            const type = state.selectedItem.userData.type;
+            const offsetPos = state.selectedItem.position.clone().add(new THREE.Vector3(0.2, 0, 0.2));
+            spawnPlantAt(type, offsetPos);
+        };
+        document.getElementById('inspector-close').onclick = () => selectItem(null);
+
+        // Utilities
+        document.getElementById('btn-clear-all').onclick = () => {
+            while (plantContainer.children.length > 0) {
+                plantContainer.remove(plantContainer.children[0]);
+            }
+            state.items = [];
+            selectItem(null);
+            dropletGroup.visible = false;
+            state.humidity = 30;
+            updateEcoStats();
+            playSound('prune');
+            showToast('Terrarium cleared');
+        };
+        document.getElementById('btn-preset-zen').onclick = loadZenPreset;
+
+        document.getElementById('btn-camera-reset').onclick = () => {
+            camera.position.set(0, 3.2, 7.5);
+            controls.target.set(0, 1.2, 0);
+            controls.update();
+        };
+
+        // Snapshot Photography
+        document.getElementById('btn-snapshot').onclick = () => {
+            // Flash effect
+            const flash = document.getElementById('camera-flash');
+            flash.style.opacity = '0.9';
+            setTimeout(() => flash.style.opacity = '0', 250);
+
+            // Hide UI helpers for capture
+            selectionRing.visible = false;
+            renderer.render(scene, camera);
+            const dataUrl = renderer.domElement.toDataURL('image/png');
+            if (state.selectedItem) selectionRing.visible = true;
+
+            const link = document.createElement('a');
+            link.download = `terrarium-studio-${Date.now()}.png`;
+            link.href = dataUrl;
+            link.click();
+            showToast('📸 High-resolution photo saved!');
+        };
+
+        // Audio Toggle
+        document.getElementById('btn-sound').onclick = (e) => {
+            state.soundEnabled = !state.soundEnabled;
+            const icon = e.currentTarget.querySelector('i');
+            if (state.soundEnabled) {
+                icon.className = 'fa-solid fa-volume-high';
+                e.currentTarget.classList.remove('text-rose-400');
+                showToast('Chimes enabled');
+            } else {
+                icon.className = 'fa-solid fa-volume-xmark';
+                e.currentTarget.classList.add('text-rose-400');
+                showToast('Muted');
+            }
+        };
+
+        // Window resize adapter
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // --- Animation Loop ---
+        let clock = new THREE.Clock();
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const elapsedTime = clock.getElapsedTime();
+
+            // Update Controls
+            controls.update();
+
+            // Gentle vessel turntable float
+            pedestalGroup.rotation.y = Math.sin(elapsedTime * 0.1) * 0.05;
+
+            // Animate fireflies / drifting spores
+            const positions = particleGeo.attributes.position.array;
+            for (let i = 0; i < particleCount; i++) {
+                const vel = particleVelocities[i];
+                positions[i * 3 + 0] += vel.x + Math.sin(elapsedTime + i) * 0.002;
+                positions[i * 3 + 1] += vel.y + Math.cos(elapsedTime * 0.8 + i) * 0.002;
+                positions[i * 3 + 2] += vel.z + Math.cos(elapsedTime + i) * 0.002;
+
+                // Loop within jar
+                if (positions[i * 3 + 1] > 3.8) positions[i * 3 + 1] = 0.8;
+                if (positions[i * 3 + 1] < 0.7) positions[i * 3 + 1] = 3.6;
+                const r = Math.sqrt(positions[i * 3] ** 2 + positions[i * 3 + 2] ** 2);
+                if (r > 1.6) {
+                    positions[i * 3] *= 0.95;
+                    positions[i * 3 + 2] *= 0.95;
+                }
+            }
+            particleGeo.attributes.position.needsUpdate = true;
+
+            // Slowly decay glass mist droplets
+            if (dropletGroup.visible && Math.random() < 0.005) {
+                state.humidity = Math.max(35, state.humidity - 1);
+                updateEcoStats();
+            }
+
+            // Glow pulse in Night Mode
+            if (state.mood === 'night') {
+                terrariumGlow.intensity = 2.0 + Math.sin(elapsedTime * 2.0) * 0.6;
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        // Initialize with default Zen Garden preset
+        window.onload = function() {
+            loadZenPreset();
+            animate();
+        };
+
+    </script>
+</body>
+</html>
