@@ -1,0 +1,114 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Terrarium Builder</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font:14px system-ui,sans-serif;background:#eef1ea;color:#233;display:flex;height:100vh}
+aside{width:300px;padding:14px;background:#fff;border-right:1px solid #d6dccf;overflow:auto}
+h1{font-size:18px;margin:0 0 10px}h2{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:#678;margin:14px 0 6px}
+.row{display:flex;flex-wrap:wrap;gap:6px}button{border:1px solid #c5cdbd;background:#f7f9f4;border-radius:6px;padding:6px 9px;cursor:pointer;font:inherit}
+button:hover{background:#e6eddd}button.on{background:#2f6b45;color:#fff;border-color:#2f6b45}
+.pal{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}.pal div{border:1px solid #d6dccf;border-radius:6px;background:#fafbf8;cursor:grab;height:62px;display:flex;align-items:center;justify-content:center}
+.pal svg{width:52px;height:52px;pointer-events:none}main{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative}
+#stage{width:min(92%,760px);height:auto;max-height:86vh;touch-action:none;background:radial-gradient(#fdfdfb,#e3e8dd);border-radius:12px;box-shadow:0 2px 12px #0002}
+#bar{display:flex;gap:6px;margin-top:10px}#hint{color:#789;font-size:12px;margin-top:6px}
+.sel-box{fill:none;stroke:#2f6b45;stroke-dasharray:5 4;stroke-width:1.5}.h{fill:#fff;stroke:#2f6b45;stroke-width:2;cursor:pointer}
+</style></head><body>
+<aside><h1>Terrarium Builder</h1>
+<h2>Container</h2><div class="row" id="containers"></div>
+<h2>Substrate (bottom to top)</h2><div class="row" id="subs"></div>
+<h2>Plants, stones, decor (drag in)</h2><div class="pal" id="pal"></div>
+<h2>Selected item</h2><div class="row">
+<button id="smaller">Smaller</button><button id="bigger">Bigger</button><button id="rotl">Rotate -</button><button id="rotr">Rotate +</button><button id="front">To front</button><button id="flip">Flip</button><button id="del">Delete</button></div>
+<p style="color:#789;font-size:12px">Drag to move. Corner handle resizes, top handle rotates. Delete/Backspace removes, Ctrl+Z undoes.</p>
+</aside>
+<main><svg id="stage" viewBox="0 0 800 700" xmlns="http://www.w3.org/2000/svg"></svg>
+<div id="bar"><button id="undo">Undo</button><button id="rand">Randomize</button><button id="clear">Clear</button><button id="png">Save PNG</button></div>
+<div id="hint">Items are kept inside the glass.</div></main>
+<script>
+const NS='http://www.w3.org/2000/svg';
+const C={
+ jar:{name:'Jar',path:'M300 110 L500 110 L500 150 Q600 175 600 270 L600 600 Q600 640 560 640 L240 640 Q200 640 200 600 L200 270 Q200 175 300 150 Z',top:110,bottom:640,lid:'M290 80 h220 v34 h-220 z'},
+ bowl:{name:'Bowl',path:'M210 200 L590 200 Q700 330 650 520 Q610 640 400 640 Q190 640 150 520 Q100 330 210 200 Z',top:200,bottom:640},
+ geo:{name:'Geometric',path:'M400 90 L640 300 L590 640 L210 640 L160 300 Z',top:90,bottom:640,frame:'M400 90 L400 640 M160 300 L640 300 M400 90 L210 640 M400 90 L590 640'}
+};
+const SUBS={gravel:{n:'Gravel',c:'#9a948a',h:40,tex:'gr'},charcoal:{n:'Charcoal',c:'#2d2b2b',h:22,tex:'ch'},soil:{n:'Soil',c:'#5b3d27',h:60,tex:'so'},moss:{n:'Moss',c:'#5f8f3a',h:18,tex:'mo'}};
+const ITEMS={
+ fern:{n:'Fern',w:120,h:140,svg:()=>{let s='';for(let i=-3;i<=3;i++){const a=i*18;s+=`<g transform="rotate(${a} 60 140)"><path d="M60 140 Q55 70 60 10" stroke="#2f7a3a" stroke-width="3" fill="none"/>`;for(let j=0;j<7;j++){const y=125-j*16;s+=`<ellipse cx="50" cy="${y}" rx="${11-j}" ry="4" fill="#3f9a48" transform="rotate(-30 50 ${y})"/><ellipse cx="70" cy="${y}" rx="${11-j}" ry="4" fill="#4aa852" transform="rotate(30 70 ${y})"/>`}s+='</g>'}return s}},
+ succ:{n:'Succulent',w:110,h:80,svg:()=>{let s='';for(let r=0;r<3;r++)for(let i=0;i<8;i++){const a=i*45+r*22;s+=`<ellipse cx="55" cy="${50-r*6}" rx="${30-r*8}" ry="${9-r*2}" fill="${['#6fa58a','#88bfa0','#a8d8b8'][r]}" stroke="#4d7d66" stroke-width="1" transform="rotate(${a} 55 ${50-r*6}) translate(${18-r*5} 0)"/>`}return s+'<circle cx="55" cy="38" r="5" fill="#c6e8cf"/>'}},
+ cactus:{n:'Cactus',w:80,h:140,svg:()=>`<rect x="28" y="20" width="26" height="120" rx="13" fill="#4f8f4f"/><path d="M28 80 h-12 a8 8 0 0 1 -8 -8 v-28 a7 7 0 0 1 14 0 v22 h6" fill="#4f8f4f"/><path d="M54 60 h12 a8 8 0 0 0 8 -8 v-20 a7 7 0 0 0 -14 0 v14 h-6" fill="#4f8f4f"/><path d="M41 24 v112 M34 30 v100 M48 30 v100" stroke="#3b733d" stroke-width="1.5"/><circle cx="41" cy="18" r="7" fill="#e86a8a"/>`},
+ moss:{n:'Moss ball',w:90,h:60,svg:()=>{let s='';for(let i=0;i<22;i++){const x=15+((i*37)%60),y=20+((i*23)%30);s+=`<circle cx="${x}" cy="${y}" r="${10+(i%4)*2}" fill="${i%3?'#5a9a3c':'#77b54d'}"/>`}return s}},
+ ivy:{n:'Ivy',w:130,h:110,svg:()=>{let s='<path d="M10 100 Q50 20 120 30" stroke="#3d6b2c" stroke-width="2.5" fill="none"/>';[[25,75],[45,50],[70,35],[95,30],[115,32],[35,62],[82,30]].forEach(([x,y],i)=>s+=`<path d="M${x} ${y} q-10 -6 -6 -16 q6 4 6 -4 q6 8 6 4 q4 10 -6 16z" fill="${i%2?'#4f8f3a':'#6aa84a'}" transform="rotate(${i*30-40} ${x} ${y})"/>`);return s}},
+ mush:{n:'Mushroom',w:60,h:70,svg:()=>`<path d="M24 35 h12 l3 35 h-18z" fill="#f2e8d5"/><path d="M4 38 Q30 -6 56 38 Z" fill="#c8402f"/><circle cx="20" cy="24" r="4" fill="#fff"/><circle cx="36" cy="18" r="3" fill="#fff"/><circle cx="44" cy="30" r="3" fill="#fff"/>`},
+ flower:{n:'Flower',w:70,h:130,svg:()=>{let s='<path d="M35 130 Q30 80 35 30" stroke="#3d7a3a" stroke-width="3" fill="none"/><ellipse cx="25" cy="90" rx="12" ry="5" fill="#4a8f45" transform="rotate(-30 25 90)"/>';for(let i=0;i<6;i++)s+=`<ellipse cx="35" cy="16" rx="7" ry="14" fill="#f2a6c0" transform="rotate(${i*60} 35 30)"/>`;return s+'<circle cx="35" cy="30" r="7" fill="#f4c542"/>'}},
+ stone:{n:'Stone',w:100,h:60,svg:()=>`<path d="M6 55 Q2 25 30 12 Q60 2 85 18 Q100 35 94 55 Z" fill="#8f9396"/><path d="M20 30 Q40 15 70 20" stroke="#b7bbbe" stroke-width="4" fill="none" stroke-linecap="round"/>`},
+ pebbles:{n:'Pebbles',w:100,h:40,svg:()=>`<ellipse cx="20" cy="28" rx="16" ry="10" fill="#d7d2c8"/><ellipse cx="50" cy="26" rx="14" ry="12" fill="#a59e92"/><ellipse cx="78" cy="29" rx="18" ry="9" fill="#c3b9a8"/><ellipse cx="45" cy="20" rx="5" ry="3" fill="#fff8" />`},
+ crystal:{n:'Crystal',w:70,h:90,svg:()=>`<path d="M35 5 L50 30 L45 85 L25 85 L20 30Z" fill="#b9a3e6"/><path d="M35 5 L35 85 M20 30 L50 30" stroke="#8a6fc9" stroke-width="1.5"/><path d="M10 50 L20 60 L18 85 L5 85 L3 60Z" fill="#cdbaf0"/>`},
+ log:{n:'Wood',w:140,h:50,svg:()=>`<path d="M10 20 Q70 5 125 18 L130 38 Q70 50 12 42 Z" fill="#7a5233"/><ellipse cx="128" cy="28" rx="8" ry="11" fill="#c49a6c"/><ellipse cx="128" cy="28" rx="4" ry="6" fill="#a37a50"/><path d="M25 25 Q70 18 110 24 M30 35 Q70 30 105 34" stroke="#5d3d24" stroke-width="2" fill="none"/>`},
+ house:{n:'Tiny house',w:70,h:70,svg:()=>`<rect x="12" y="32" width="46" height="36" fill="#f0e2c4"/><path d="M5 35 L35 6 L65 35Z" fill="#a8473b"/><rect x="29" y="46" width="12" height="22" fill="#6b4a2f"/><rect x="16" y="40" width="9" height="9" fill="#9fd0e8"/>`}
+};
+const st=document.getElementById('stage');let S={c:'jar',subs:['gravel','charcoal','soil','moss'],items:[]},sel=null,hist=[],uid=1;
+const push=()=>{hist.push(JSON.stringify(S));if(hist.length>100)hist.shift()};
+const el=(t,a={},p)=>{const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);p&&p.appendChild(e);return e};
+let geo;function inside(x,y){const p=new DOMPoint(x,y);return geo.isPointInFill(p)}
+function surfaceY(){let y=C[S.c].bottom;S.subs.forEach(s=>y-=SUBS[s].h);return y}
+// clamp so the item's footprint (bottom corners + top centre) stays inside glass
+function pts(it){const w=it.w*it.s/2,h=it.h*it.s,r=it.r*Math.PI/180,co=Math.cos(r),si=Math.sin(r);return[[-w,0],[w,0],[-w,-h],[w,-h],[0,-h]].map(([a,b])=>[it.x+a*co-b*si,it.y+a*si+b*co])}
+function ok(it){return pts(it).every(([x,y])=>inside(x,y))}
+function fit(it){if(ok(it))return true;const cx=400,cy=(C[S.c].top+C[S.c].bottom)/2+60;for(let k=0;k<40&&!ok(it);k++){it.x+=(cx-it.x)*.12;it.y+=(cy-it.y)*.12;if(k>20)it.s*=.95}return ok(it)}
+function render(){st.innerHTML='';const c=C[S.c];const d=el('defs',{},st);const cp=el('clipPath',{id:'glass'},d);el('path',{d:c.path},cp);
+ const pg=el('pattern',{id:'gr',width:18,height:14,patternUnits:'userSpaceOnUse'},d);[[4,4,4,'#b3ada2'],[12,9,3.5,'#7d776c'],[14,2,2,'#cfc8bc']].forEach(([x,y,r,f])=>el('circle',{cx:x,cy:y,r,fill:f},pg));
+ const pc=el('pattern',{id:'ch',width:14,height:10,patternUnits:'userSpaceOnUse'},d);el('rect',{x:2,y:2,width:6,height:4,fill:'#151414'},pc);el('rect',{x:9,y:6,width:4,height:3,fill:'#454242'},pc);
+ const ps=el('pattern',{id:'so',width:10,height:10,patternUnits:'userSpaceOnUse'},d);el('circle',{cx:3,cy:3,r:1,fill:'#7a5638'},ps);el('circle',{cx:8,cy:7,r:1.2,fill:'#3e2a1b'},ps);
+ const pm=el('pattern',{id:'mo',width:12,height:12,patternUnits:'userSpaceOnUse'},d);el('circle',{cx:4,cy:5,r:3,fill:'#77a94b'},pm);el('circle',{cx:10,cy:9,r:2.5,fill:'#4c7a2c'},pm);
+ const lg=el('linearGradient',{id:'gl',x1:0,x2:1},d);el('stop',{offset:0,'stop-color':'#fff','stop-opacity':.55},lg);el('stop',{offset:.25,'stop-color':'#fff','stop-opacity':0},lg);el('stop',{offset:.85,'stop-color':'#fff','stop-opacity':0},lg);el('stop',{offset:1,'stop-color':'#fff','stop-opacity':.3},lg);
+ el('ellipse',{cx:400,cy:c.bottom+8,rx:230,ry:14,fill:'#0002'},st);
+ geo=el('path',{d:c.path,fill:'#dff1f366'},st);
+ const g=el('g',{'clip-path':'url(#glass)'},st);let y=c.bottom;
+ S.subs.forEach((k,i)=>{const s=SUBS[k];y-=s.h;const wave=k==='moss'?`M0 ${y+6} `+Array.from({length:20},(_,j)=>`Q${j*40+20} ${y-6} ${j*40+40} ${y+4}`).join(' ')+` V${y+s.h+2} H0Z`:`M0 ${y} Q400 ${y+(i%2?6:-6)} 800 ${y} V${y+s.h+1} H0Z`;el('path',{d:wave,fill:s.c},g);el('path',{d:wave,fill:`url(#${s.tex})`,opacity:.9},g)});
+ const ig=el('g',{'clip-path':'url(#glass)'},st);
+ S.items.forEach(it=>{const t=ITEMS[it.t];const w=el('g',{transform:`translate(${it.x} ${it.y}) rotate(${it.r}) scale(${it.s*(it.f?-1:1)} ${it.s}) translate(${-t.w/2} ${-t.h})`,'data-id':it.id,style:'cursor:move'},ig);w.innerHTML=`<rect width="${t.w}" height="${t.h}" fill="transparent"/>`+t.svg()});
+ el('path',{d:c.path,fill:'url(#gl)',stroke:'#7fa8ad',"stroke-width":4,'pointer-events':'none'},st);
+ if(c.frame)el('path',{d:c.frame,stroke:'#7fa8ad88','stroke-width':2,fill:'none','pointer-events':'none'},st);
+ if(c.lid)el('path',{d:c.lid,fill:'#b98d5b',stroke:'#8a6440','stroke-width':2},st);
+ if(!S.items.length&&!exporting){const tx=el('text',{x:400,y:surfaceY()-120,'text-anchor':'middle',fill:'#89a','font-size':20},st);tx.textContent='Drag plants and stones into the glass'}
+ if(sel&&!exporting){const it=S.items.find(i=>i.id===sel);if(it){const t=ITEMS[it.t],w=t.w*it.s,h=t.h*it.s;const sg=el('g',{transform:`translate(${it.x} ${it.y}) rotate(${it.r})`},st);el('rect',{class:'sel-box',x:-w/2-4,y:-h-4,width:w+8,height:h+8},sg);el('line',{x1:0,y1:-h-4,x2:0,y2:-h-26,stroke:'#2f6b45'},sg);el('circle',{class:'h','data-h':'rot',cx:0,cy:-h-30,r:8},sg);el('rect',{class:'h','data-h':'size',x:w/2-4,y:-h-12,width:14,height:14},sg)}}
+ document.querySelectorAll('#containers button').forEach(b=>b.classList.toggle('on',b.dataset.k===S.c));document.querySelectorAll('#subs button').forEach(b=>b.classList.toggle('on',S.subs.includes(b.dataset.k)))}
+let exporting=false;
+function svgPt(e){const p=st.createSVGPoint();p.x=e.clientX;p.y=e.clientY;return p.matrixTransform(st.getScreenCTM().inverse())}
+function add(t,x,y,extra={}){const T=ITEMS[t];const it={id:uid++,t,x,y:Math.min(y,surfaceY()+12),r:0,s:1,f:0,w:T.w,h:T.h,...extra};if(!fit(it))return null;S.items.push(it);return it}
+// UI build
+const cb=document.getElementById('containers');for(const k in C){const b=document.createElement('button');b.textContent=C[k].name;b.dataset.k=k;b.onclick=()=>{push();S.c=k;render();S.items=S.items.filter(fit);render()};cb.appendChild(b)}
+const sb=document.getElementById('subs');for(const k in SUBS){const b=document.createElement('button');b.textContent=SUBS[k].n;b.dataset.k=k;b.onclick=()=>{push();S.subs=S.subs.includes(k)?S.subs.filter(x=>x!==k):Object.keys(SUBS).filter(x=>x===k||S.subs.includes(x));render()};sb.appendChild(b)}
+const pal=document.getElementById('pal');for(const k in ITEMS){const T=ITEMS[k],d=document.createElement('div');d.title=T.n;d.dataset.t=k;const m=Math.max(T.w,T.h);d.innerHTML=`<svg viewBox="${(T.w-m)/2} ${(T.h-m)/2} ${m} ${m}">${T.svg()}</svg>`;pal.appendChild(d);
+ d.addEventListener('pointerdown',e=>{e.preventDefault();const ghost=d.firstChild.cloneNode(true);Object.assign(ghost.style,{position:'fixed',width:'70px',height:'70px',pointerEvents:'none',opacity:.8,left:e.clientX-35+'px',top:e.clientY-35+'px',zIndex:9});document.body.appendChild(ghost);
+  const mv=ev=>{ghost.style.left=ev.clientX-35+'px';ghost.style.top=ev.clientY-35+'px'};const up=ev=>{removeEventListener('pointermove',mv);removeEventListener('pointerup',up);ghost.remove();const r=st.getBoundingClientRect();if(ev.clientX>r.left&&ev.clientX<r.right&&ev.clientY>r.top&&ev.clientY<r.bottom){const p=svgPt(ev);push();const it=add(k,p.x,p.y+T.h/2);if(it){sel=it.id}else hist.pop();render()}};addEventListener('pointermove',mv);addEventListener('pointerup',up)})}
+// stage interaction
+let drag=null;
+st.addEventListener('pointerdown',e=>{const h=e.target.dataset&&e.target.dataset.h;const g=e.target.closest('[data-id]');const p=svgPt(e);
+ if(h){const it=S.items.find(i=>i.id===sel);push();drag={mode:h,it,p0:p,s0:it.s,r0:it.r};}
+ else if(g){sel=+g.dataset.id;const it=S.items.find(i=>i.id===sel);push();drag={mode:'move',it,dx:p.x-it.x,dy:p.y-it.y};render()}
+ else{sel=null;render();return}
+ st.setPointerCapture(e.pointerId)});
+st.addEventListener('pointermove',e=>{if(!drag)return;const p=svgPt(e),it=drag.it,old={...it};
+ if(drag.mode==='move'){it.x=p.x-drag.dx;it.y=p.y-drag.dy}
+ else if(drag.mode==='size'){const d0=Math.hypot(drag.p0.x-it.x,drag.p0.y-it.y),d1=Math.hypot(p.x-it.x,p.y-it.y);it.s=Math.max(.3,Math.min(3,drag.s0*d1/d0))}
+ else{it.r=Math.atan2(p.x-it.x,-(p.y-it.y))*180/Math.PI;if(Math.abs(it.r)<4)it.r=0}
+ if(!ok(it)){if(drag.mode==='move'){const tx={...old,x:it.x};const ty={...old,y:it.y};Object.assign(it,old);if(ok(tx))it.x=tx.x;else if(ok(ty))it.y=ty.y}else Object.assign(it,old)}
+ render()});
+st.addEventListener('pointerup',()=>{if(drag&&hist.length&&hist[hist.length-1]===JSON.stringify(S))hist.pop();drag=null});
+function mod(f){const it=S.items.find(i=>i.id===sel);if(!it)return;const snap=JSON.stringify(S),old={...it};f(it);if(!ok(it)){Object.assign(it,old);flash('No room inside the glass')}else{hist.push(snap)}render()}
+function flash(m){const h=document.getElementById('hint');h.textContent=m;h.style.color='#b44';clearTimeout(flash.t);flash.t=setTimeout(()=>{h.textContent='Items are kept inside the glass.';h.style.color=''},1400)}
+const $=id=>document.getElementById(id);
+$('smaller').onclick=()=>mod(i=>i.s=Math.max(.3,i.s*.85));$('bigger').onclick=()=>mod(i=>i.s=Math.min(3,i.s*1.15));$('rotl').onclick=()=>mod(i=>i.r-=15);$('rotr').onclick=()=>mod(i=>i.r+=15);$('flip').onclick=()=>mod(i=>i.f=i.f?0:1);
+$('front').onclick=()=>mod(i=>{S.items=S.items.filter(x=>x!==i).concat(i)});
+const del=()=>{if(!sel)return;push();S.items=S.items.filter(i=>i.id!==sel);sel=null;render()};$('del').onclick=del;
+const undo=()=>{if(!hist.length)return;S=JSON.parse(hist.pop());sel=null;render()};$('undo').onclick=undo;
+$('clear').onclick=()=>{push();S.items=[];sel=null;render()};
+$('rand').onclick=()=>{push();const ks=Object.keys(C);S.c=ks[Math.random()*3|0];S.subs=Object.keys(SUBS).filter(()=>Math.random()>.2);if(!S.subs.includes('soil'))S.subs.push('soil');S.subs=Object.keys(SUBS).filter(k=>S.subs.includes(k));S.items=[];render();
+ const pool=Object.keys(ITEMS),sy=surfaceY(),n=6+(Math.random()*5|0);
+ for(let i=0;i<n;i++){const t=pool[Math.random()*pool.length|0];add(t,250+Math.random()*300,sy+8+Math.random()*14,{s:.7+Math.random()*.6,f:Math.random()<.5?1:0,r:(Math.random()-.5)*16})}
+ S.items.sort((a,b)=>a.y-b.y);sel=null;render()};
+$('png').onclick=()=>{exporting=true;const s0=sel;sel=null;render();const x=new XMLSerializer().serializeToString(st);exporting=false;sel=s0;render();
+ const img=new Image();img.onload=()=>{const cv=document.createElement('canvas');cv.width=1600;cv.height=1400;const cx=cv.getContext('2d');cx.fillStyle='#f4f6f1';cx.fillRect(0,0,1600,1400);cx.drawImage(img,0,0,1600,1400);const a=document.createElement('a');a.download='terrarium.png';a.href=cv.toDataURL('image/png');a.click()};
+ img.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(x.replace('<svg','<svg width="800" height="700"'))};
+addEventListener('keydown',e=>{if(e.target.tagName==='INPUT')return;if((e.ctrlKey||e.metaKey)&&e.key==='z'){e.preventDefault();undo()}else if(e.key==='Delete'||e.key==='Backspace')del()});
+render();
+</script></body></html>
